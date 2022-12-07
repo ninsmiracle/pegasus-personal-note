@@ -212,7 +212,7 @@ void replica_split_manager::parent_prepare_states(const std::string &dir) // on 
     learn_state parent_states;
     int64_t checkpoint_decree;
     // generate checkpoint
-    ///传入app->learn_dir路径以便存放创建了的checkpoint
+    ///传入app->learn_dir路径以便创建并存放checkpoint
     error_code ec = _replica->_app->copy_checkpoint_to_dir(dir.c_str(), &checkpoint_decree, true);
     if (ec == ERR_OK) {
         ddebug_replica("prepare checkpoint succeed: checkpoint dir = {}, checkpoint decree = {}",
@@ -604,7 +604,7 @@ void replica_split_manager::child_notify_catch_up() // on child partition
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
-///如果所有的child追上了进度，parent会复制mutation(增量)来同步发送给child
+///???如果所有的child追上了进度，parent会复制mutation(增量)来同步发送给child
 void replica_split_manager::parent_handle_child_catch_up(
     const notify_catch_up_request &request,
     notify_cacth_up_response &response) // on primary parent
@@ -763,6 +763,7 @@ void replica_split_manager::parent_send_update_partition_count_request(
                                                0_ms,
                                                0,
                                                get_gpid().thread_hash());
+    //primary parent发给child partition，让child去改自己的partition_version。然后回调
     rpc.call(address, tracker(), [this, rpc, not_replied_addresses](error_code ec) mutable {
         on_update_child_group_partition_count_reply(
             ec, rpc.request(), rpc.response(), not_replied_addresses);
@@ -770,6 +771,7 @@ void replica_split_manager::parent_send_update_partition_count_request(
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
+//child partition用来处理上面那个update_child_group_partition_count_rpc的，也在replica_stub.cpp中注册过
 void replica_split_manager::on_update_child_group_partition_count(
     const update_child_group_partition_count_request &request,
     update_child_group_partition_count_response &response) // on child partition
@@ -800,6 +802,7 @@ void replica_split_manager::on_update_child_group_partition_count(
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
+//运行在所有partition上，核心是更新了partition_version = partition_count-1
 void replica_split_manager::update_local_partition_count(
     int32_t new_partition_count) // on all partitions
 {
@@ -891,6 +894,7 @@ void replica_split_manager::on_update_child_group_partition_count_reply(
 
     // update group partition_count succeed
     not_replied_addresses->erase(request.target_address);
+    //全部完成，primary parent准备一份requst发给meta，让其去注册；同时拒绝客户端读写
     if (not_replied_addresses->empty()) {
         ddebug_replica("update child({}) group partition_count, new_partition_count = {}",
                        request.child_pid,
