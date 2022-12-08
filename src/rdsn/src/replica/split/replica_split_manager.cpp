@@ -213,6 +213,7 @@ void replica_split_manager::parent_prepare_states(const std::string &dir) // on 
     int64_t checkpoint_decree;
     // generate checkpoint
     ///传入app->learn_dir路径以便创建并存放checkpoint
+    //由于在同一个文件系统上，所以SST文件部分是创建了硬链接。checkpoint对应的是已经持久化了的数据
     error_code ec = _replica->_app->copy_checkpoint_to_dir(dir.c_str(), &checkpoint_decree, true);
     if (ec == ERR_OK) {
         ddebug_replica("prepare checkpoint succeed: checkpoint dir = {}, checkpoint decree = {}",
@@ -241,6 +242,7 @@ void replica_split_manager::parent_prepare_states(const std::string &dir) // on 
         get_gpid(), checkpoint_decree + 1, invalid_ballot, mutation_list, files, total_file_size);
 
     // get prepare list
+    //构造函数prepare_list(replica_base *r, const prepare_list &parent_plist) 创建了新对象
     std::shared_ptr<prepare_list> plist =
         std::make_shared<prepare_list>(_replica, *_replica->_prepare_list);
     //从last_committed开始截取
@@ -291,7 +293,7 @@ void replica_split_manager::child_copy_prepare_list(
     _replica->_split_states.async_learn_task =
         tasking::enqueue(LPC_PARTITION_SPLIT_ASYNC_LEARN,
                          tracker(),
-                         //child learn states用来apply ck等
+                         //child learn states用来apply checkpoint等
                          std::bind(&replica_split_manager::child_learn_states,
                                    this,
                                    lstate,
@@ -306,10 +308,11 @@ void replica_split_manager::child_copy_prepare_list(
                    plist->min_decree(),
                    plist->max_decree());
 
-/// ???暂不清楚 这里plist是父partitioni的prepare list的指针，reset了的话，父的咋用？
+
     // copy parent prepare list
-    ///执行复制过来的prepare list
+    //指明了plist的set_committer方式是execute_mutation。 这个execute_mutation是属于_replica这个对象的，第三个参数是占位符，代表1这个位置参数的占位
     plist->set_committer(std::bind(&replica::execute_mutation, _replica, std::placeholders::_1));
+    //这一步是真的在复制  plist是std::move(parent)传进来的语义对象，通过new构造传给了child的prepare_list 
     _replica->_prepare_list.reset(new prepare_list(this, *plist));
     for (decree d = last_committed_decree + 1; d <= _replica->_prepare_list->max_decree(); ++d) {
         mutation_ptr mu = _replica->_prepare_list->get_mutation_by_decree(d);
@@ -323,6 +326,7 @@ void replica_split_manager::child_copy_prepare_list(
             mu->set_logged();
         }
     }
+    //child把prepare list中的未commit的操作内容都写到plog中
     _replica->_split_states.is_prepare_list_copied = true;
 }
 
@@ -358,14 +362,14 @@ void replica_split_manager::child_learn_states(learn_state lstate,
     });
 
     // apply parent checkpoint
-    ///因为child和parent在同一个机器上，所以只需要申请共享读checkpoint然后apply即可，不需要复制
+    ///因为child和parent在同一个机器上，不需要nfs_copy checkpoint，根据checkpoint复原数据
     err = _replica->_app->apply_checkpoint(replication_app_base::chkpt_apply_mode::learn, lstate);
     if (err != ERR_OK) {
         derror_replica("failed to apply checkpoint, error={}", err);
         return;
     }
 
-    ///同理，共享plog和memory mutation
+    ///复原plog数据，然后复原mutation数据
     // replay parent private log and learn in-memory mutations
     err =
         child_apply_private_logs(plog_files, mutation_list, total_file_size, last_committed_decree);
@@ -489,6 +493,7 @@ replica_split_manager::child_apply_private_logs(std::vector<std::string> plog_fi
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
+//把异步learn这个过程中，parent上接收到的新增量Mutation给同步了
 void replica_split_manager::child_catch_up_states() // on child partition
 {
     FAIL_POINT_INJECT_F("replica_child_catch_up_states", [](dsn::string_view) {});
@@ -498,7 +503,6 @@ void replica_split_manager::child_catch_up_states() // on child partition
         return;
     }
 
-    ///mutation 变量 同步
     // parent will copy mutations to child during async-learn, as a result:
     // - child prepare_list last_committed_decree = parent prepare_list last_committed_decree, also
     // is catch_up goal_decree
@@ -604,7 +608,7 @@ void replica_split_manager::child_notify_catch_up() // on child partition
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
-///???如果所有的child追上了进度，parent会复制mutation(增量)来同步发送给child
+///如果所有的child异步catch up上了，parent会！同步！复制mutation来发送给child
 void replica_split_manager::parent_handle_child_catch_up(
     const notify_catch_up_request &request,
     notify_cacth_up_response &response) // on primary parent
@@ -640,6 +644,7 @@ void replica_split_manager::parent_handle_child_catch_up(
     _replica->_primary_states.caught_up_children.insert(request.child_address);
     // _primary_states.statuses is a map structure: rpc address -> partition_status
     // it stores replica's rpc address and partition_status of this replica group
+    ///在当前primary的成员里面遍历，如果有没有caught_up的，立刻返回
     for (auto &iter : _replica->_primary_states.statuses) {
         if (_replica->_primary_states.caught_up_children.find(iter.first) ==
             _replica->_primary_states.caught_up_children.end()) {
@@ -688,6 +693,7 @@ void replica_split_manager::parent_check_sync_point_commit(decree sync_point) //
     ddebug_replica("sync_point = {}, app last_committed_decree = {}",
                    sync_point,
                    _replica->_app->last_committed_decree());
+    //如果primary看到同步增量也被2pc提交了，更新
     if (_replica->_app->last_committed_decree() >= sync_point) {
         update_child_group_partition_count(_replica->_app_info.partition_count * 2);
     } else {
@@ -702,6 +708,7 @@ void replica_split_manager::parent_check_sync_point_commit(decree sync_point) //
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
+//更新primary的成员对partition_count的认知更新
 void replica_split_manager::update_child_group_partition_count(
     int new_partition_count) // on primary parent
 {
@@ -732,6 +739,7 @@ void replica_split_manager::update_child_group_partition_count(
     for (const auto &kv : _replica->_primary_states.statuses) {
         not_replied_addresses->insert(kv.first);
     }
+    //把还没更新partition_count的成员都发一遍请求
     for (const auto &iter : _replica->_primary_states.statuses) {
         parent_send_update_partition_count_request(
             iter.first, new_partition_count, not_replied_addresses);
@@ -771,7 +779,8 @@ void replica_split_manager::parent_send_update_partition_count_request(
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
-//child partition用来处理上面那个update_child_group_partition_count_rpc的，也在replica_stub.cpp中注册过
+//child收到修改partition_count的要求，检查一下没有问题就开始调用update_local_partition_count来修改了
+//这是用来处理上面那个update_child_group_partition_count_rpc的，也在replica_stub.cpp中注册过
 void replica_split_manager::on_update_child_group_partition_count(
     const update_child_group_partition_count_request &request,
     update_child_group_partition_count_response &response) // on child partition
@@ -802,7 +811,7 @@ void replica_split_manager::on_update_child_group_partition_count(
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
-//运行在所有partition上，核心是更新了partition_version = partition_count-1
+//可以运行在所有partition上，核心是更新了partition_version = partition_count-1
 void replica_split_manager::update_local_partition_count(
     int32_t new_partition_count) // on all partitions
 {
@@ -833,6 +842,8 @@ void replica_split_manager::update_local_partition_count(
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
+//运行在primary上，之前primary去通知所有成员改partition count，这里是成员回复之后primary自己的处理
+//如果成员返回的超时了，就重发
 void replica_split_manager::on_update_child_group_partition_count_reply(
     error_code ec,
     const update_child_group_partition_count_request &request,
@@ -894,7 +905,7 @@ void replica_split_manager::on_update_child_group_partition_count_reply(
 
     // update group partition_count succeed
     not_replied_addresses->erase(request.target_address);
-    //全部完成，primary parent准备一份requst发给meta，让其去注册；同时拒绝客户端读写
+    //该primary下的成员全部完成，准备一份requst发给meta
     if (not_replied_addresses->empty()) {
         ddebug_replica("update child({}) group partition_count, new_partition_count = {}",
                        request.child_pid,
