@@ -81,6 +81,7 @@ function get_env()
         echo "ERROR: get app envs failed, refer to ${log_file}"
         exit 1
     fi
+    #grep的锚定符
     grep "^${key} =" ${log_file} | awk '{print $3}'
 }
 
@@ -94,6 +95,7 @@ function set_env()
 
     echo "set_app_envs ${key}=${value}"
     log_file="/tmp/$UID.$PID.pegasus.set_app_envs.${app_name}"
+    #-e 若字符串中出现以下字符  这行说明用echo把指令打到shell中了
     echo -e "use ${app_name}\n set_app_envs ${key} ${value}" | ./run.sh shell --cluster ${cluster} &>${log_file}
     set_fail=`grep 'set app env failed' ${log_file} | wc -l`
     if [ ${set_fail} -eq 1 ]; then

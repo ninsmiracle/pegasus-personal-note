@@ -608,7 +608,7 @@ void replica_split_manager::child_notify_catch_up() // on child partition
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
-///如果所有的child异步catch up上了，parent会！同步！复制mutation来发送给child
+///如果所有的成员child异步catch up上了，parent会！同步！复制mutation来发送给child
 void replica_split_manager::parent_handle_child_catch_up(
     const notify_catch_up_request &request,
     notify_cacth_up_response &response) // on primary parent
@@ -659,6 +659,7 @@ void replica_split_manager::parent_handle_child_catch_up(
 
     // sync_point is the first decree after parent send write request to child synchronously
     // when sync_point commit, parent consider child has all data it should have during async-learn
+    ///个人理解：在prepare中打了个空值，如果这个特殊空值check到已经commit了，就说明过去的异步数据都完成了
     decree sync_point = _replica->_prepare_list->max_decree() + 1;
     if (!FLAGS_empty_write_disabled) {
         // empty wirte here to commit sync_point
@@ -957,6 +958,7 @@ void replica_split_manager::register_child_on_meta(ballot b) // on primary paren
     request.primary_address = _stub->_primary_address;
 
     // reject client request
+    //primary parent给meta发送请求的同时，拒绝读写
     _replica->update_local_configuration_with_no_ballot_change(partition_status::PS_INACTIVE);
     _replica->set_inactive_state_transient(true);
     int32_t old_partition_version = _partition_version.exchange(-1);
@@ -1088,6 +1090,7 @@ void replica_split_manager::on_register_child_on_meta_reply(
     _replica->_primary_states.sync_send_write_request = false;
 
     // update primary parent group partition_count
+    //更新primary parent本地的partition count
     update_local_partition_count(_replica->_app_info.partition_count * 2);
     _meta_split_status = split_status::NOT_SPLIT;
     _replica->broadcast_group_check();
@@ -1161,6 +1164,7 @@ void replica_split_manager::parent_handle_split_error(const std::string &child_e
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
+//meta_service::on_config_sync 感知到修改了partition count的配置信息
 void replica_split_manager::trigger_primary_parent_split(
     const int32_t meta_partition_count,
     const split_status::type meta_split_status) // on primary parent partition
@@ -1226,6 +1230,7 @@ void replica_split_manager::trigger_primary_parent_split(
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
+//在replica::on_group_check中被调用
 void replica_split_manager::trigger_secondary_parent_split(
     const group_check_request &request,
     /*out*/ group_check_response &response) // on secondary parent partition
@@ -1255,6 +1260,7 @@ void replica_split_manager::trigger_secondary_parent_split(
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
+// 2pc中被调用
 void replica_split_manager::copy_mutation(mutation_ptr &mu) // on parent partition
 {
     dassert_replica(_child_gpid.get_app_id() > 0, "child_gpid({}) is invalid", _child_gpid);
@@ -1262,7 +1268,7 @@ void replica_split_manager::copy_mutation(mutation_ptr &mu) // on parent partiti
     if (mu->is_sync_to_child()) {
         mu->wait_child();
     }
-
+    //create a new message without client information, it will not reply
     mutation_ptr new_mu = mutation::copy_no_reply(mu);
     error_code ec = _stub->split_replica_exec(
         LPC_PARTITION_SPLIT,

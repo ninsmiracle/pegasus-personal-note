@@ -686,6 +686,7 @@ dsn::error_code replication_ddl_client::list_app(const std::string &app_name,
     int32_t partition_count = 0;
     int32_t max_replica_count = 0;
     std::vector<partition_configuration> partitions;
+    //真正去发请求并且获得response  返回形式是给partitions赋值
     dsn::error_code err = list_app(app_name, app_id, partition_count, partitions);
     if (err != dsn::ERR_OK) {
         return err;
@@ -793,6 +794,7 @@ dsn::error_code replication_ddl_client::list_app(const std::string &app_name,
         tp_hpc.add_row_name_and_data("read_unhealthy_partition_count", read_unhealthy);
         mtp.add(std::move(tp_hpc));
     }
+    //std::ostream &out, output_format format
     mtp.output(out, json ? tp_output_format::kJsonPretty : tp_output_format::kTabular);
     return dsn::ERR_OK;
 #undef RESOLVE

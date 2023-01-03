@@ -44,6 +44,7 @@ function find_cluster()
 {
   if [ -n "$MINOS_CONFIG_FILE" -a -n "$MINOS_CLIENT_DIR" ]; then
     minos_type=1
+    #拿第一个参数来对比
     minos_config=$(dirname $MINOS_CONFIG_FILE)/xiaomi-config/conf/pegasus/pegasus-${1}.cfg
     minos_client_dir=$MINOS_CLIENT_DIR
     if [ -f "$minos_config" -a -f "$minos_client_dir/deploy" ]; then
