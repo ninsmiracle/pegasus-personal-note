@@ -33,7 +33,7 @@ import (
 // obtain the latest capacity distribution. Please adjust the node capacity update
 // interval of the server to speed up the equalization speed. Relevant configurations
 // are as follows:
-//
+//  配置在config中
 //- disk_stat_interval_seconds = 600
 //+ disk_stat_interval_seconds = 60 # or less
 //

@@ -345,6 +345,7 @@ template <typename TRpcHolder>
 int meta_service::check_leader(TRpcHolder rpc, rpc_address *forward_address)
 {
     dsn::rpc_address leader;
+    //_failure_detector故障检测器
     if (!_failure_detector->get_leader(&leader)) {
         if (!rpc.dsn_request()->header->context.u.is_forward_supported) {
             if (forward_address != nullptr)

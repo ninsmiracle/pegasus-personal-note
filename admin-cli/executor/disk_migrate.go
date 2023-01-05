@@ -44,6 +44,7 @@ func DiskMigrate(client *Client, replicaServer string, pidStr string, from strin
 	}
 	replica := node.Replica()
 
+	//调用的func (rs *ReplicaSession) DiskMigrate
 	resp, err := replica.DiskMigrate(ctx, &radmin.ReplicaDiskMigrateRequest{
 		Pid:        pid,
 		OriginDisk: from,
