@@ -425,7 +425,9 @@ typedef std::map<dsn::gpid, std::shared_ptr<configuration_balancer_request>> mig
 
 struct meta_view
 {
+    //map<app_id, std::shared_ptr<app_state>>
     app_mapper *apps;
+    //unordered_map<rpc_address, node_state>
     node_mapper *nodes;
 };
 

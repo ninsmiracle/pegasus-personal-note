@@ -28,6 +28,7 @@ DSN_DEFINE_uint32("meta_server",
                   "balance operation count per round for cluster balancer");
 DSN_TAG_VARIABLE(balance_op_count_per_round, FT_MUTABLE);
 
+//提供两种类型的全集群负载均衡策略
 uint32_t get_partition_count(const node_state &ns, balance_type type, int32_t app_id)
 {
     unsigned count = 0;
@@ -52,6 +53,7 @@ uint32_t get_partition_count(const node_state &ns, balance_type type, int32_t ap
     return (uint32_t)count;
 }
 
+//获得最大数据倾斜程度 最大的节点上的replica减去最小节点上的replica
 uint32_t get_skew(const std::map<rpc_address, uint32_t> &count_map)
 {
     uint32_t min = UINT_MAX, max = 0;
@@ -71,7 +73,8 @@ void get_min_max_set(const std::map<rpc_address, uint32_t> &node_count_map,
                      /*out*/ std::set<rpc_address> &max_set)
 {
     std::multimap<uint32_t, rpc_address> count_multimap = utils::flip_map(node_count_map);
-
+    //equal_range是C++ STL中的一种二分查找的算法，试图在已排序的[first,last)中寻找value
+    //返回在不破坏次序的前提下，value可插入的第一个位置（亦即lower_bound）
     auto range = count_multimap.equal_range(count_multimap.begin()->first);
     for (auto iter = range.first; iter != range.second; ++iter) {
         min_set.insert(iter->second);
@@ -131,12 +134,14 @@ bool cluster_balance_policy::do_cluster_replica_balance(const meta_view *global_
                                                         /*out*/ migration_list &list)
 {
     cluster_migration_info cluster_info;
+    //过滤不符合迁移条件的表，算剩下表的stew，形成nodes节点的migrate信息map
     if (!get_cluster_migration_info(global_view, type, cluster_info)) {
         return false;
     }
 
     partition_set selected_pid;
     move_info next_move;
+    //get_next_move算出要把Nodes从哪移动到哪
     while (get_next_move(cluster_info, selected_pid, next_move)) {
         if (!apply_move(next_move, selected_pid, list, cluster_info)) {
             break;
@@ -154,13 +159,15 @@ bool cluster_balance_policy::get_cluster_migration_info(
     const balance_type type,
     /*out*/ cluster_migration_info &cluster_info)
 {
+    //global_view->nodes : unordered_map<rpc_address, node_state>
     const node_mapper &nodes = *global_view->nodes;
     if (nodes.size() < 3) {
         return false;
     }
-
+    //global_view->apps : map<app_id, std::shared_ptr<app_state>>
     const app_mapper &all_apps = *global_view->apps;
     app_mapper apps;
+    //筛掉当前状态不能做迁移的表
     for (const auto &kv : all_apps) {
         const std::shared_ptr<app_state> &app = kv.second;
         auto ignored = is_ignored_app(app->app_id);
@@ -176,7 +183,8 @@ bool cluster_balance_policy::get_cluster_migration_info(
             apps[app->app_id] = app;
         }
     }
-
+    
+    //把符合条件的表都算一遍skew
     for (const auto &kv : apps) {
         std::shared_ptr<app_state> app = kv.second;
         app_migration_info info;
@@ -187,6 +195,8 @@ bool cluster_balance_policy::get_cluster_migration_info(
         cluster_info.apps_skew[kv.first] = get_skew(info.replicas_count);
     }
 
+
+    //形成node_address->migration_info, node_address->replicas_count两个map
     for (const auto &kv : nodes) {
         const node_state &ns = kv.second;
         node_migration_info info;
@@ -209,9 +219,11 @@ bool cluster_balance_policy::get_app_migration_info(std::shared_ptr<app_state> a
     info.app_id = app->app_id;
     info.app_name = app->app_name;
     info.partitions.resize(app->partitions.size());
+    //把该表的partition地址都标记好primary或secondary
     for (auto i = 0; i < app->partitions.size(); ++i) {
         std::map<rpc_address, partition_status::type> pstatus_map;
         pstatus_map[app->partitions[i].primary] = partition_status::PS_PRIMARY;
+        //有分片不健康，直接返回false
         if (app->partitions[i].secondaries.size() != app->partitions[i].max_replica_count - 1) {
             // partition is unhealthy
             return false;
@@ -228,6 +240,7 @@ bool cluster_balance_policy::get_app_migration_info(std::shared_ptr<app_state> a
         info.replicas_count[ns.addr()] = count;
     }
 
+    //能获取到该表的migration info，代表做好了migration前的检查
     return true;
 }
 
@@ -261,6 +274,7 @@ bool cluster_balance_policy::get_next_move(const cluster_migration_info &cluster
 {
     // key-app skew, value-app id
     std::multimap<uint32_t, int32_t> app_skew_multimap = utils::flip_map(cluster_info.apps_skew);
+    //找到skew最严重的表
     auto max_app_skew = app_skew_multimap.rbegin()->first;
     if (max_app_skew == 0) {
         ddebug_f("every app is balanced and any move will unbalance a app");
@@ -278,8 +292,10 @@ bool cluster_balance_policy::get_next_move(const cluster_migration_info &cluster
      * a move that improves the app skew and the cluster skew, if possible. If
      * not, attempt to pick a move that improves the app skew.
      **/
+    //在这些最大skew的表中，选择一个可以同时改善集群倾斜和表倾斜的表去做负载均衡。如果不行的话，就改善表倾斜。
     std::set<rpc_address> cluster_min_count_nodes;
     std::set<rpc_address> cluster_max_count_nodes;
+    //到本集群的所有机器上找到拥有最多和最少replica的set (因为有可能有多台机器拥有同样多的replica)
     get_min_max_set(cluster_info.replicas_count, cluster_min_count_nodes, cluster_max_count_nodes);
 
     bool found = false;
@@ -300,6 +316,7 @@ bool cluster_balance_policy::get_next_move(const cluster_migration_info &cluster
          * with the replica servers most loaded overall, and likewise for least loaded.
          * These are our ideal candidates for moving from and to, respectively.
          **/
+        //计算app_stew和cluster_stew的交集
         std::set<rpc_address> app_cluster_min_set =
             utils::get_intersection(app_min_count_nodes, cluster_min_count_nodes);
         std::set<rpc_address> app_cluster_max_set =
@@ -331,7 +348,7 @@ bool cluster_balance_policy::get_next_move(const cluster_migration_info &cluster
             break;
         }
     }
-
+    //存在一个migration可以同时让集群和表的负载都更优
     return found;
 }
 
@@ -343,6 +360,7 @@ auto select_random(const S &s, size_t n)
     return it;
 }
 
+//在max中选择磁盘负载最大的盘上的partition  max是app(max)和cluster(max)的交集
 bool cluster_balance_policy::pick_up_move(const cluster_migration_info &cluster_info,
                                           const std::set<rpc_address> &max_nodes,
                                           const std::set<rpc_address> &min_nodes,
@@ -351,6 +369,7 @@ bool cluster_balance_policy::pick_up_move(const cluster_migration_info &cluster_
                                           /*out*/ move_info &move_info)
 {
     std::set<app_disk_info> max_load_disk_set;
+    //在节点上找一个磁盘负载最大的盘子，返回结果在在max中选择磁盘负载最大的盘上的partition中
     get_max_load_disk_set(cluster_info, max_nodes, app_id, max_load_disk_set);
     if (max_load_disk_set.empty()) {
         return false;
@@ -363,6 +382,7 @@ bool cluster_balance_policy::pick_up_move(const cluster_migration_info &cluster_
              max_load_disk.partitions.size());
     for (const auto &node_addr : min_nodes) {
         gpid picked_pid;
+        //是否找到partition适合做迁移
         if (pick_up_partition(
                 cluster_info, node_addr, max_load_disk.partitions, selected_pid, picked_pid)) {
             move_info.pid = picked_pid;
@@ -392,6 +412,7 @@ void cluster_balance_policy::get_max_load_disk_set(
 {
     // key: partition count (app_disk_info.partitions.size())
     // value: app_disk_info structure
+    //app_disk_info包含appid,nodes_address和磁盘tag信息，可以以表的视角定位某个磁盘的情况
     std::multimap<uint32_t, app_disk_info> app_disk_info_multimap;
     for (const auto &node_addr : max_nodes) {
         // key: disk_tag
@@ -408,6 +429,7 @@ void cluster_balance_policy::get_max_load_disk_set(
                 std::pair<uint32_t, app_disk_info>(kv.second.size(), info));
         }
     }
+    //利用equal_range把最大负载的N个app_disk_info都导入出来
     auto range = app_disk_info_multimap.equal_range(app_disk_info_multimap.rbegin()->first);
     for (auto iter = range.first; iter != range.second; ++iter) {
         max_load_disk_set.insert(iter->second);
@@ -451,13 +473,16 @@ bool cluster_balance_policy::pick_up_partition(const cluster_migration_info &clu
                                                /*out*/ gpid &picked_pid)
 {
     bool found = false;
+    //遍历这些在 负载最大磁盘  上的partition
     for (const auto &pid : max_load_partitions) {
         auto iter = cluster_info.apps_info.find(pid.get_app_id());
+        //表目前不存在
         if (iter == cluster_info.apps_info.end()) {
             continue;
         }
 
         // partition has already in mirgration list
+        //选择到的replica已经在迁移List中了
         if (selected_pid.find(pid) != selected_pid.end()) {
             continue;
         }

@@ -52,6 +52,7 @@ bool calc_disk_load(node_mapper &nodes,
                     /*out*/ disk_load &load)
 {
     load.clear();
+    //检查Node是否被记录在nodes中，第三个参数表示如果不存在是否创建
     const node_state *ns = get_node_state(nodes, node, false);
     dassert(ns != nullptr, "can't find node(%s) from node_state", node.to_string());
 
@@ -61,6 +62,7 @@ bool calc_disk_load(node_mapper &nodes,
               pid.get_partition_index(),
               node.to_string());
         const config_context &cc = *get_config_context(apps, pid);
+        //在该Meta维护的serving服务中的服务器中，node是否存在
         auto iter = cc.find_from_serving(node);
         if (iter == cc.serving.end()) {
             dwarn("can't collect gpid(%d.%d)'s info from %s, which should be primary",
@@ -74,6 +76,7 @@ bool calc_disk_load(node_mapper &nodes,
         }
     };
 
+    //是否只以primary维度计算负载
     if (only_primary) {
         bool result = ns->for_each_primary(id, add_one_replica_to_disk_load);
         dump_disk_load(id, node, only_primary, load);
@@ -85,6 +88,7 @@ bool calc_disk_load(node_mapper &nodes,
     }
 }
 
+//获取所有节点的磁盘负载
 std::unordered_map<dsn::rpc_address, disk_load>
 get_node_loads(const std::shared_ptr<app_state> &app,
                const app_mapper &apps,
@@ -101,6 +105,8 @@ get_node_loads(const std::shared_ptr<app_state> &app,
             return node_loads;
         }
     }
+    // unordered_map<dsn::rpc_address, disk_load>
+    // disk_tag->primary_count/total_count_on_this_disk
     return node_loads;
 }
 
@@ -173,6 +179,7 @@ generate_balancer_request(const app_mapper &apps,
 load_balance_policy::load_balance_policy(meta_service *svc)
     : _svc(svc), _ctrl_balancer_ignored_apps(nullptr)
 {
+    //给集群注册需要忽略的app id
     register_ctrl_commands();
 }
 
@@ -192,8 +199,9 @@ bool load_balance_policy::primary_balance(const std::shared_ptr<app_state> &app,
 {
     dassert(_alive_nodes >= FLAGS_min_live_node_count_for_unfreeze,
             "too few alive nodes will lead to freeze");
+    //表级别的负载均衡
     ddebug_f("primary balancer for app({}:{})", app->app_name, app->app_id);
-
+    //创建ford_fulkerson表，计算哪些primay需要切换角色
     auto graph = ford_fulkerson::builder(app, *_global_view->nodes, address_id).build();
     if (nullptr == graph) {
         dinfo_f("the primaries are balanced for app({}:{})", app->app_name, app->app_id);
@@ -202,6 +210,7 @@ bool load_balance_policy::primary_balance(const std::shared_ptr<app_state> &app,
 
     auto path = graph->find_shortest_path();
     if (path != nullptr) {
+        //能找到增广路径，可以通过primary切换成secondary来平衡
         dinfo_f("{} primaries are flew", path->_flow.back());
         return move_primary(std::move(path));
     } else {
@@ -247,6 +256,8 @@ bool load_balance_policy::move_primary(std::unique_ptr<flow_path> path)
         return false;
     }
 
+
+    //依次遍历增广路径中的每个节点(current)，并获取其在增广路径上的相邻节点(prev)
     int plan_moving = path->_flow.back();
     while (path->_prev[current] != 0) {
         rpc_address from = address_vec[path->_prev[current]];
@@ -273,6 +284,7 @@ void load_balance_policy::start_moving_primary(const std::shared_ptr<app_state> 
                                                disk_load *prev_load,
                                                disk_load *current_load)
 {
+    //对prev中的每一个primary，查找其在current中是否有相应的secondary   如果有说明可以切换角色，加入potential中
     std::list<dsn::gpid> potential_moving = calc_potential_moving(app, from, to);
     auto potential_moving_size = potential_moving.size();
     dassert_f(plan_moving <= potential_moving_size,
@@ -283,6 +295,7 @@ void load_balance_policy::start_moving_primary(const std::shared_ptr<app_state> 
               potential_moving_size);
 
     while (plan_moving-- > 0) {
+        //找一个负载最大的replica进行角色切换
         dsn::gpid selected = select_moving(potential_moving, prev_load, current_load, from, to);
 
         const partition_configuration &pc = app->partitions[selected.get_partition_index()];
@@ -297,6 +310,7 @@ void load_balance_policy::start_moving_primary(const std::shared_ptr<app_state> 
     }
 }
 
+//查找其在current中是否有相应的secondary
 std::list<dsn::gpid> load_balance_policy::calc_potential_moving(
     const std::shared_ptr<app_state> &app, const rpc_address &from, const rpc_address &to)
 {
@@ -312,6 +326,7 @@ std::list<dsn::gpid> load_balance_policy::calc_potential_moving(
     return potential_moving;
 }
 
+//找一个负载最大的replica来move
 dsn::gpid load_balance_policy::select_moving(std::list<dsn::gpid> &potential_moving,
                                              disk_load *prev_load,
                                              disk_load *current_load,
@@ -503,12 +518,16 @@ ford_fulkerson::ford_fulkerson(const std::shared_ptr<app_state> &app,
 
 // using dijstra to find shortest path
 std::unique_ptr<flow_path> ford_fulkerson::find_shortest_path()
-{
+{   
+    //记录路径点的访问情况
     std::vector<bool> visit(_graph_nodes, false);
+    //流量开销记录 相当于传统dijkstra的cost
     std::vector<int> flow(_graph_nodes, 0);
+    //前置节点，结果路径
     std::vector<int> prev(_graph_nodes, -1);
     flow[0] = INT_MAX;
     while (!visit.back()) {
+        //找到最小生成树的下一个节点
         auto pos = select_node(visit, flow);
         if (pos == -1) {
             break;
@@ -525,6 +544,7 @@ std::unique_ptr<flow_path> ford_fulkerson::find_shortest_path()
 
 void ford_fulkerson::make_graph()
 {
+    //增加source和sink节点
     _graph_nodes = _nodes.size() + 2;
     _network.resize(_graph_nodes, std::vector<int>(_graph_nodes, 0));
     for (const auto &node : _nodes) {
@@ -560,6 +580,7 @@ void ford_fulkerson::update_decree(int node_id, const node_state &ns)
     });
 }
 
+//处理边界情况
 void ford_fulkerson::handle_corner_case()
 {
     // Suppose you have an 8-shard app in a cluster with 3 nodes(which name are node1, node2,
@@ -600,6 +621,7 @@ int ford_fulkerson::max_value_pos(const std::vector<bool> &visit, const std::vec
     return pos;
 }
 
+//dijkstra更新visit和cost信息
 void ford_fulkerson::update_flow(int pos,
                                  const std::vector<bool> &visit,
                                  const std::vector<std::vector<int>> &network,
@@ -633,6 +655,7 @@ bool copy_replica_operation::start(migration_list *result)
 {
     init_ordered_address_ids();
     _node_loads = get_node_loads(_app, _apps, _nodes, only_copy_primary());
+    //有节点负载获取不到， 不做copy
     if (_node_loads.size() != _nodes.size()) {
         return false;
     }
@@ -641,7 +664,7 @@ bool copy_replica_operation::start(migration_list *result)
         if (!can_continue()) {
             break;
         }
-
+        //需要通过copy来迁移的partition_list
         gpid selected_pid = select_partition(result);
         if (selected_pid.get_app_id() != -1) {
             copy_once(selected_pid, result);
@@ -681,6 +704,7 @@ gpid copy_replica_operation::select_max_load_gpid(const partition_set *partition
             max_load = load;
         }
     }
+    //返回最后max_load的pid
     return selected_pid;
 }
 
