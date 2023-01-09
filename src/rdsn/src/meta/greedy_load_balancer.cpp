@@ -158,6 +158,7 @@ bool greedy_load_balancer::all_replica_infos_collected(const node_state &ns)
 {
     dsn::rpc_address n = ns.addr();
     return ns.for_each_partition([this, n](const dsn::gpid &pid) {
+        //在meta的结构体上面查找
         config_context &cc = *get_config_context(*(t_global_view->apps), pid);
         if (cc.find_from_serving(n) == cc.serving.end()) {
             ddebug("meta server hasn't collected gpid(%d.%d)'s info of %s",
@@ -188,6 +189,7 @@ void greedy_load_balancer::greedy_balancer(const bool balance_checker)
     } else if (!balance_checker) {
         balance_policy = _cluster_balance_policy.get();
     }
+    //正式执行load_balance_policy策略
     if (balance_policy != nullptr) {
         balance_policy->balance(balance_checker, t_global_view, t_migration_result);
     }
@@ -207,6 +209,7 @@ bool greedy_load_balancer::balance(meta_view view, migration_list &list)
     return !t_migration_result->empty();
 }
 
+// check时不会做获取cluster_balance_policy，即不会真的去执行banlance
 bool greedy_load_balancer::check(meta_view view, migration_list &list)
 {
     ddebug("balance checker round");
@@ -221,6 +224,7 @@ bool greedy_load_balancer::check(meta_view view, migration_list &list)
     return !t_migration_result->empty();
 }
 
+//把移动或复制的节点数记录到perf计数器中
 void greedy_load_balancer::report(const dsn::replication::migration_list &list,
                                   bool balance_checker)
 {
