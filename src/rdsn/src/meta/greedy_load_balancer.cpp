@@ -47,6 +47,7 @@ DSN_DECLARE_uint64(min_live_node_count_for_unfreeze);
 greedy_load_balancer::greedy_load_balancer(meta_service *_svc)
     : server_load_balancer(_svc), _get_balance_operation_count(nullptr)
 {
+    //利用meta_service初始化了一个指针
     _app_balance_policy = dsn::make_unique<app_balance_policy>(_svc);
     _cluster_balance_policy = dsn::make_unique<cluster_balance_policy>(_svc);
 
@@ -184,6 +185,7 @@ void greedy_load_balancer::greedy_balancer(const bool balance_checker)
     }
 
     load_balance_policy *balance_policy = nullptr;
+    //不是cluster级别balance
     if (!FLAGS_balance_cluster) {
         balance_policy = _app_balance_policy.get();
     } else if (!balance_checker) {
@@ -195,6 +197,7 @@ void greedy_load_balancer::greedy_balancer(const bool balance_checker)
     }
 }
 
+//Make balancer proposals by round according to current meta-view
 bool greedy_load_balancer::balance(meta_view view, migration_list &list)
 {
     ddebug("balancer round");

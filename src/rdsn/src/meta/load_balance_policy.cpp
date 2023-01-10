@@ -53,9 +53,11 @@ bool calc_disk_load(node_mapper &nodes,
 {
     load.clear();
     //检查Node是否被记录在nodes中，第三个参数表示如果不存在是否创建
+    //typedef std::unordered_map<rpc_address, node_state> node_mapper;
     const node_state *ns = get_node_state(nodes, node, false);
     dassert(ns != nullptr, "can't find node(%s) from node_state", node.to_string());
-
+    
+    //可执行函数，通过function封装
     auto add_one_replica_to_disk_load = [&](const gpid &pid) {
         dinfo("add gpid(%d.%d) to node(%s) disk load",
               pid.get_app_id(),
@@ -71,6 +73,7 @@ bool calc_disk_load(node_mapper &nodes,
                   node.to_string());
             return false;
         } else {
+            //disk_tag->primary_count
             load[iter->disk_tag]++;
             return true;
         }
@@ -78,6 +81,7 @@ bool calc_disk_load(node_mapper &nodes,
 
     //是否只以primary维度计算负载
     if (only_primary) {
+        //在这里迭代执行
         bool result = ns->for_each_primary(id, add_one_replica_to_disk_load);
         dump_disk_load(id, node, only_primary, load);
         return result;

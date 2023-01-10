@@ -21,9 +21,13 @@
 
 namespace dsn {
 namespace replication {
-// disk_tag->primary_count/total_count_on_this_disk
+// disk_tag-> replica_count
 typedef std::map<std::string, int> disk_load;
 
+//三种负载均衡策略
+//全集群的copy primary让primary均衡
+//全集群的copy secondary让secondary均衡
+//按表进行move primary在不copy数据的情况下进行负载均衡
 enum class balance_type
 {
     COPY_PRIMARY = 0,
@@ -157,7 +161,7 @@ public:
             : _app(app), _nodes(nodes), _address_id(address_id)
         {
         }
-
+        //构造最大流图
         std::unique_ptr<ford_fulkerson> build()
         {
             auto nodes_count = _nodes.size();

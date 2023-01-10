@@ -253,6 +253,7 @@ const (
 	MetaFunctionLevel_fl_invalid MetaFunctionLevel = 10000
 )
 
+//meta_level to string
 func (p MetaFunctionLevel) String() string {
 	switch p {
 	case MetaFunctionLevel_fl_stopped:
@@ -270,7 +271,7 @@ func (p MetaFunctionLevel) String() string {
 	}
 	return "<UNSET>"
 }
-
+//string to meta_level
 func MetaFunctionLevelFromString(s string) (MetaFunctionLevel, error) {
 	switch s {
 	case "fl_stopped":
