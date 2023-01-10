@@ -164,10 +164,12 @@ func getMigrateDiskInfo(client *executor.Client, replicaServer string, disks []e
 }
 
 func computeMigrateAction(migrate *MigrateDisk, minSize int64) (*MigrateAction, error) {
+	//average是该节点所有磁盘的平均
 	lowDiskCanReceiveMax := migrate.averageUsage - migrate.lowDisk.diskCapacity.Usage
 	highDiskCanSendMax := migrate.highDisk.diskCapacity.Usage - migrate.averageUsage
 	sizeNeedMove := int64(math.Min(float64(lowDiskCanReceiveMax), float64(highDiskCanSendMax)))
 
+	//一个ssd上有很多replica，从后向前遍历找一个replica容量大小小于needMove的
 	var selectReplica *executor.ReplicaCapacityStruct
 	for i := len(migrate.highDisk.replicaCapacity) - 1; i >= 0; i-- {
 		if migrate.highDisk.replicaCapacity[i].Size > sizeNeedMove {

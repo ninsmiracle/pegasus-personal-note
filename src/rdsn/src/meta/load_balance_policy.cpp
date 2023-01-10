@@ -73,7 +73,7 @@ bool calc_disk_load(node_mapper &nodes,
                   node.to_string());
             return false;
         } else {
-            //disk_tag->primary_count
+            //disk_tag->replica_count
             load[iter->disk_tag]++;
             return true;
         }

@@ -71,9 +71,11 @@ fi
 pwd="$( cd "$( dirname "$0"  )" && pwd )"
 shell_dir="$( cd $pwd/.. && pwd )"
 cd $shell_dir
-
+#source在本shell中执行脚本
 source ./scripts/minos_common.sh
+#调用find_cluster函数
 find_cluster $cluster
+#-ne检查两个数是否相等
 if [ $? -ne 0 ]; then
   echo "ERROR: cluster \"$cluster\" not found"
   exit 1

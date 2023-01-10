@@ -244,7 +244,7 @@ bool replica_disk_migrator::migrate_replica_checkpoint(const replica_disk_migrat
         reset_status();
         return false;
     });
-
+    //打一个该replica的该app的checkpoint
     const auto &sync_checkpoint_err = _replica->get_app()->sync_checkpoint();
     if (sync_checkpoint_err != ERR_OK) {
         derror_replica("disk migration(origin={}, target={}) sync_checkpoint failed({})",

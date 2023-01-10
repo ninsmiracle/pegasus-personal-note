@@ -665,6 +665,7 @@ void replica_split_manager::parent_handle_child_catch_up(
         // empty wirte here to commit sync_point
         mutation_ptr mu = _replica->new_mutation(invalid_decree);
         mu->add_client_request(RPC_REPLICATION_WRITE_EMPTY, nullptr);
+        //调用2pc,间接调用copy_mutation
         _replica->init_prepare(mu, false);
         dassert_replica(sync_point == mu->data.header.decree,
                         "sync_point should be equal to mutation's decree, {} vs {}",
@@ -919,7 +920,7 @@ void replica_split_manager::on_update_child_group_partition_count_reply(
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
-void replica_split_manager::register_child_on_meta(ballot b) // on primary parent
+void replica_split_manager::v(ballot b) // on primary parent
 {
     FAIL_POINT_INJECT_F("replica_register_child_on_meta", [](dsn::string_view) {});
 

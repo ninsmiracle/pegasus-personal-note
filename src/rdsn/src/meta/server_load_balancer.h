@@ -134,7 +134,7 @@ public:
     //
     virtual void report(const migration_list &list, bool balance_checker) = 0;
 
-    //
+    // (stddev：标准偏差)
     // Calculate cluster balance score
     // params:
     //   view: current meta-view

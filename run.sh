@@ -1549,7 +1549,7 @@ function run_shell()
     if [ ${CLUSTER_SPECIFIED} -eq 1 ]; then
         CLUSTER_NAME="unknown"
     fi
-
+    #去config文件夹找对应yaml文件
     if [ $CLUSTER_NAME_SPECIFIED -eq 1 ]; then
         meta_section="/tmp/minos.config.cluster.meta.section.$UID"
         if [ ! -z "$MINOS2_CONFIG_FILE" ]; then

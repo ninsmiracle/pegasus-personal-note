@@ -227,7 +227,7 @@ dsn::task_ptr hdfs_service::remove_path(const remove_path_request &req,
 {
     remove_path_future_ptr tsk(new remove_path_future(code, cb, 0));
     tsk->set_tracker(tracker);
-
+ile on remote file provider 
     auto remove_path_background = [this, req, tsk]() {
         std::string path = dsn::utils::filesystem::path_combine(_hdfs_path, req.path);
         remove_path_response resp;

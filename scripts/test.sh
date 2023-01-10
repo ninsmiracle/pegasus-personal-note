@@ -90,7 +90,6 @@ function propose_primary()
 
         echo "now we do: propose -g ${app_id}.${target_pid} -p ASSIGN_PRIMARY -t ${alive_second} -n ${alive_second}\n "
     done
-
 }
 
 

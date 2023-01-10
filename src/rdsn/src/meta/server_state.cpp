@@ -2530,6 +2530,7 @@ bool server_state::check_all_partitions()
            ignored_add_secondary_count);
 
     // then the balancer stage
+    // meta_function_level = lively
     if (level < meta_function_level::fl_steady) {
         ddebug("don't do replica migration coz meta server is in level(%s)",
                _meta_function_level_VALUES_TO_NAMES.find(level)->second);

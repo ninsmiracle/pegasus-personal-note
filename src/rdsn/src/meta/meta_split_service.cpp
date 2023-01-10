@@ -80,7 +80,7 @@ void meta_split_service::start_partition_split(start_split_rpc rpc)
     do_start_partition_split(std::move(app), std::move(rpc));
 }
 
-///meta开始改变分片数量，主要是改变 app_state的partition_count相关属性
+///meta开始改变 app_state的partition_count相关属性，这里rpc也是客户端发来的
 void meta_split_service::do_start_partition_split(std::shared_ptr<app_state> app,
                                                   start_split_rpc rpc)
 {
@@ -121,6 +121,7 @@ void meta_split_service::do_start_partition_split(std::shared_ptr<app_state> app
         _state->get_app_path(*app), std::move(value), on_write_storage_complete);
 }
 
+//replica发来的rpc，一个primary的chile分片已经完成了split
 void meta_split_service::register_child_on_meta(register_child_rpc rpc)
 {
     const auto &request = rpc.request();
@@ -198,6 +199,7 @@ void meta_split_service::register_child_on_meta(register_child_rpc rpc)
 
     app->helpers->split_states.status.erase(parent_gpid.get_partition_index());
     app->helpers->split_states.splitting_count--;
+    //这里更说明了本次注册是为一个parent注册一个chile，而不是全部的parent
     ddebug_f("app({}) parent({}) will register child({})", app_name, parent_gpid, child_gpid);
 
     parent_context.stage = config_status::pending_remote_sync;

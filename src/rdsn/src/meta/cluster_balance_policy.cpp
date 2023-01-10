@@ -118,7 +118,8 @@ void cluster_balance_policy::balance(bool checker,
 bool cluster_balance_policy::cluster_replica_balance(const meta_view *global_view,
                                                      const balance_type type,
                                                      /*out*/ migration_list &list)
-{
+{   
+    //算出是否有要迁移的情况
     bool enough_information = do_cluster_replica_balance(global_view, type, list);
     if (!enough_information) {
         return false;
@@ -127,6 +128,7 @@ bool cluster_balance_policy::cluster_replica_balance(const meta_view *global_vie
         ddebug_f("migration count of {} = {}", enum_to_string(type), list.size());
         return false;
     }
+    //有足够的信息且还有gpid需要的请求
     return true;
 }
 
