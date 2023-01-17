@@ -26,6 +26,7 @@ namespace dsn {
 namespace replication {
 DSN_DECLARE_uint64(min_live_node_count_for_unfreeze);
 
+//把进行了的迁移动作打印到日志中
 void dump_disk_load(app_id id, const rpc_address &node, bool only_primary, const disk_load &load)
 {
     std::ostringstream load_string;
@@ -110,7 +111,7 @@ get_node_loads(const std::shared_ptr<app_state> &app,
         }
     }
     // unordered_map<dsn::rpc_address, disk_load>
-    // disk_tag->primary_count/total_count_on_this_disk
+    // disk_tag -> primary_count/total_count_on_this_disk
     return node_loads;
 }
 
@@ -192,6 +193,7 @@ load_balance_policy::~load_balance_policy() { unregister_ctrl_commands(); }
 void load_balance_policy::init(const meta_view *global_view, migration_list *list)
 {
     _global_view = global_view;
+    //map<gpid, configuration_balancer_request>
     _migration_result = list;
     const node_mapper &nodes = *_global_view->nodes;
     _alive_nodes = nodes.size();
@@ -539,6 +541,7 @@ std::unique_ptr<flow_path> ford_fulkerson::find_shortest_path()
         update_flow(pos, visit, _network, flow, prev);
     }
 
+    //找到了一个最短路径
     if (visit.back() && flow.back() != 0) {
         return dsn::make_unique<struct flow_path>(_app, std::move(flow), std::move(prev));
     } else {
@@ -559,9 +562,11 @@ void ford_fulkerson::make_graph()
     handle_corner_case();
 }
 
+//数据填入ford图中
 void ford_fulkerson::add_edge(int node_id, const node_state &ns)
 {
     int primary_count = ns.primary_count(_app->app_id);
+    //已有逻辑都是在算节点数
     if (primary_count > _replicas_low) {
         _network[0][node_id] = primary_count - _replicas_low;
     } else {
@@ -692,6 +697,7 @@ gpid copy_replica_operation::select_max_load_gpid(const partition_set *partition
                                                   migration_list *result)
 {
     int id_max = *_ordered_address_ids.rbegin();
+    //找到primary负载最大的nodes的磁盘
     const disk_load &load_on_max = _node_loads.at(_address_vec[id_max]);
 
     gpid selected_pid(-1, -1);
@@ -714,7 +720,9 @@ gpid copy_replica_operation::select_max_load_gpid(const partition_set *partition
 
 void copy_replica_operation::copy_once(gpid selected_pid, migration_list *result)
 {
+    //最大负载
     auto from = _address_vec[*_ordered_address_ids.rbegin()];
+    //最小负载
     auto to = _address_vec[*_ordered_address_ids.begin()];
 
     auto pc = _app->partitions[selected_pid.get_partition_index()];
@@ -797,6 +805,7 @@ bool copy_primary_operation::can_select(gpid pid, migration_list *result)
 bool copy_primary_operation::can_continue()
 {
     int id_min = *_ordered_address_ids.begin();
+    //当前节点的最小replica数量都大于理论值，没有迁移replica的目标节点
     if (_have_lower_than_average && _partition_counts[id_min] >= _replicas_low) {
         ddebug_f("{}: stop the copy due to primaries on all nodes will reach low later.",
                  _app->get_logname());

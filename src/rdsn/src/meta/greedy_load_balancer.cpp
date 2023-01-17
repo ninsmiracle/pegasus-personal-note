@@ -191,7 +191,7 @@ void greedy_load_balancer::greedy_balancer(const bool balance_checker)
     } else if (!balance_checker) {
         balance_policy = _cluster_balance_policy.get();
     }
-    //正式执行load_balance_policy策略
+    //正式执行load_balance_policy策略  运算结果加入到t_migration_result中
     if (balance_policy != nullptr) {
         balance_policy->balance(balance_checker, t_global_view, t_migration_result);
     }

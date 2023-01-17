@@ -99,6 +99,7 @@ void cluster_balance_policy::balance(bool checker,
                          false, /* balance_checker */
                          true,  /* balance_in_turn */
                          true,  /* only_move_primary */
+                         //这里的方法是基类load policy的
                          std::bind(&cluster_balance_policy::primary_balance,
                                    this,
                                    std::placeholders::_1,
@@ -106,6 +107,8 @@ void cluster_balance_policy::balance(bool checker,
         return;
     }
 
+    //优先迁移secondary  有方案则直接返回
+    //cluster_replica_balance连填充migration_result顺带发送迁移请求
     bool need_continue =
         cluster_replica_balance(_global_view, balance_type::COPY_SECONDARY, *_migration_result);
     if (!need_continue) {
@@ -124,11 +127,13 @@ bool cluster_balance_policy::cluster_replica_balance(const meta_view *global_vie
     if (!enough_information) {
         return false;
     }
+    //apply move之后migration_list被填充
+    //如果migration_list有数值的，则说明没有需要迁移的需求了
     if (!list.empty()) {
         ddebug_f("migration count of {} = {}", enum_to_string(type), list.size());
         return false;
     }
-    //有足够的信息且还有gpid需要的请求
+    //需要迁移
     return true;
 }
 
@@ -146,7 +151,7 @@ bool cluster_balance_policy::do_cluster_replica_balance(const meta_view *global_
     move_info next_move;
     //get_next_move算出要把Nodes从哪移动到哪
     while (get_next_move(cluster_info, selected_pid, next_move)) {
-        if (!apply_move(next_move, selected_pid, list, cluster_info)) {
+        if (!apply_move(next_move, selected_pid, list, cluster_info)) { 
             break;
         }
         if (list.size() >= FLAGS_balance_op_count_per_round) {
@@ -202,7 +207,9 @@ bool cluster_balance_policy::get_cluster_migration_info(
     //形成node_address->migration_info, node_address->replicas_count两个map
     for (const auto &kv : nodes) {
         const node_state &ns = kv.second;
+        //migration_info包括节点地址，磁盘tag->partition的map
         node_migration_info info;
+        //填充
         get_node_migration_info(ns, apps, info);
         cluster_info.nodes_info.emplace(kv.first, std::move(info));
 
@@ -562,6 +569,7 @@ bool cluster_balance_policy::apply_move(const move_info &move,
     pc.pid = move.pid;
     pc.primary = primary_addr;
     list[move.pid] = generate_balancer_request(*_global_view->apps, pc, move.type, source, target);
+    //这里加入_migration_result，之后再参考copy
     _migration_result->emplace(
         move.pid, generate_balancer_request(*_global_view->apps, pc, move.type, source, target));
     selected_pids.insert(move.pid);

@@ -920,7 +920,7 @@ void replica_split_manager::on_update_child_group_partition_count_reply(
 }
 
 // ThreadPool: THREAD_POOL_REPLICATION
-void replica_split_manager::v(ballot b) // on primary parent
+void replica_split_manager::register_child_on_meta(ballot b) // on primary parent
 {
     FAIL_POINT_INJECT_F("replica_register_child_on_meta", [](dsn::string_view) {});
 

@@ -589,6 +589,7 @@ const partition_set *node_state::get_partitions(int app_id, bool only_primary) c
 {
     const std::map<int32_t, partition_set> *all_partitions;
     if (only_primary)
+        //app_primaries是个map: app_id -> gpid
         all_partitions = &app_primaries;
     else
         all_partitions = &app_partitions;
