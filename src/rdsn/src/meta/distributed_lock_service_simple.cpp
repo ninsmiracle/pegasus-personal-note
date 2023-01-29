@@ -128,6 +128,7 @@ distributed_lock_service_simple::lock(const std::string &lock_id,
         auto it = _dlocks.find(lock_id);
         if (it == _dlocks.end()) {
             if (!opt.create_if_not_exist)
+            //ZK上锁路径找不到
                 err = ERR_OBJECT_NOT_FOUND;
             else {
                 lock_info li;

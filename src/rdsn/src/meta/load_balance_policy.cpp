@@ -679,6 +679,7 @@ bool copy_replica_operation::start(migration_list *result)
             copy_once(selected_pid, result);
             update_ordered_address_ids();
         } else {
+            //selected_pid为-1的时候没找到最大的负载
             _ordered_address_ids.erase(--_ordered_address_ids.end());
         }
     }

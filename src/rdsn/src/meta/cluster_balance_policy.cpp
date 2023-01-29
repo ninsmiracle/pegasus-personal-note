@@ -133,7 +133,7 @@ bool cluster_balance_policy::cluster_replica_balance(const meta_view *global_vie
         ddebug_f("migration count of {} = {}", enum_to_string(type), list.size());
         return false;
     }
-    //需要迁移
+    //还需要迁移
     return true;
 }
 

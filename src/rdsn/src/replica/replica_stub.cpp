@@ -827,6 +827,7 @@ void replica_stub::initialize_start()
     // init liveness monitor
     dassert(NS_Disconnected == _state, "");
     if (_options.fd_disabled == false) {
+        //slave_failure_detector_with_multimaster 具有多主机的从故障检测器
         _failure_detector = std::make_shared<dsn::dist::slave_failure_detector_with_multimaster>(
             _options.meta_servers,
             [this]() { this->on_meta_server_disconnected(); },
@@ -1060,6 +1061,7 @@ void replica_stub::on_query_disk_info(query_disk_info_rpc rpc)
         disk_info info;
         // app_name empty means query all app replica_count
         if (req.app_name.empty()) {
+            //计数器中操作了这两个vector
             info.holding_primary_replicas = dir_node->holding_primary_replicas;
             info.holding_secondary_replicas = dir_node->holding_secondary_replicas;
         } else {
