@@ -169,7 +169,7 @@ private:
         bool is_alive;
         bool rejected;
         task_ptr send_beacon_timer;
-
+        //[initially]原来的，最初的
         // masters are always considered *disconnected* initially which is ok even when master
         // thinks workers are connected
         master_record(::dsn::rpc_address n, uint64_t last_send_time_for_beacon_with_ack_)

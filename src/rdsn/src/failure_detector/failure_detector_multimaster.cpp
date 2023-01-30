@@ -85,12 +85,15 @@ void slave_failure_detector_with_multimaster::end_ping(::dsn::error_code err,
     if (!failure_detector::end_ping_internal(err, ack))
         return;
 
+    //当前replica认为的master meta
     dassert(ack.this_node == _meta_servers.group_address()->leader(),
             "ack.this_node[%s] vs meta_servers.leader[%s]",
             ack.this_node.to_string(),
             _meta_servers.group_address()->leader().to_string());
 
+    //ping master失败
     if (ERR_OK != err) {
+        //切到meta_list的下一个
         rpc_address next = _meta_servers.group_address()->next(ack.this_node);
         if (next != ack.this_node) {
             _meta_servers.group_address()->set_leader(next);
@@ -134,13 +137,13 @@ void slave_failure_detector_with_multimaster::on_master_disconnected(
 void slave_failure_detector_with_multimaster::on_master_connected(::dsn::rpc_address node)
 {
     /*
-    * well, this is called in on_ping_internal, which is called by rep::end_ping.
-    * So this function is called in the lock context of fd::_lock
-    */
+     * well, this is called in on_ping_internal, which is called by rep::end_ping.
+     * So this function is called in the lock context of fd::_lock
+     */
     bool is_primary = (_meta_servers.group_address()->leader() == node);
     if (is_primary) {
         _master_connected_callback();
     }
 }
-}
-} // end namespace
+} // namespace dist
+} // namespace dsn

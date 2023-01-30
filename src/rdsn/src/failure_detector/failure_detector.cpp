@@ -94,7 +94,7 @@ error_code failure_detector::start(uint32_t check_interval_seconds,
 
     open_service();
 
-    // start periodically check job
+    // start periodically check job  开启定期检查
     _check_task = tasking::enqueue_timer(LPC_BEACON_CHECK,
                                          &_tracker,
                                          [this] { check_all_records(); },
@@ -142,7 +142,7 @@ void failure_detector::register_master(::dsn::rpc_address target)
 
     if (setup_timer) {
         // delay the beacon slightly to make first beacon greater than the
-        // last_beacon_send_time_with_ack
+        // last_beacon_send_time_with_ack    [slightly 略微的]
         ret.first->second.send_beacon_timer =
             tasking::enqueue_timer(LPC_BEACON_SEND,
                                    &_tracker,
@@ -153,6 +153,7 @@ void failure_detector::register_master(::dsn::rpc_address target)
     }
 }
 
+//把新的meta替换到_master中
 bool failure_detector::switch_master(::dsn::rpc_address from,
                                      ::dsn::rpc_address to,
                                      uint32_t delay_milliseconds)
@@ -213,7 +214,7 @@ void failure_detector::report(::dsn::rpc_address node, bool is_master, bool is_c
                     |---- grace period ----|
                                |--- grace period ----| grace IsExpired, declare worker dead
 */
-
+//[lease period] 租期   [grace period]  宽限期     [deliver]传送
 void failure_detector::check_all_records()
 {
     if (!_is_started) {
@@ -230,7 +231,7 @@ void failure_detector::check_all_records()
         for (auto itr = _masters.begin(); itr != _masters.end(); itr++) {
             master_record &record = itr->second;
 
-            /*
+            /*      [interleaved]交错的    [guarantee]保证
              * "Check interval" and "send beacon" are interleaved, so we must
              * test if "record will expire before next time we check all the records"
              * in order to guarantee the perfect fd
@@ -239,6 +240,7 @@ void failure_detector::check_all_records()
             // to aviod integer overflow
             if (record.is_alive &&
                 is_time_greater_than(now, record.last_send_time_for_beacon_with_ack) &&
+                /// 上个beacon的有效期过期了
                 now + _check_interval_milliseconds - record.last_send_time_for_beacon_with_ack >
                     _lease_milliseconds) {
                 derror("master %s disconnected, now=%" PRId64 ", last_send_time=%" PRId64
@@ -248,7 +250,7 @@ void failure_detector::check_all_records()
                        record.last_send_time_for_beacon_with_ack,
                        now + _check_interval_milliseconds -
                            record.last_send_time_for_beacon_with_ack);
-
+                //上一个primary meta
                 expire.push_back(record.node);
                 record.is_alive = false;
 
@@ -256,7 +258,7 @@ void failure_detector::check_all_records()
             }
         }
 
-        /*
+        /*  disconnected事件必须在锁下进行，要保证is_alive的切换是原子性的
          * The disconnected event MUST be under the protection of the _lock
          * we must guarantee that the record.is_alive switch and the connect/disconnect
          * callbacks are ATOMIC as these callbacks usually have side effects.
@@ -357,7 +359,7 @@ void failure_detector::on_ping_internal(const beacon_msg &beacon, /*out*/ beacon
 {
     ack.time = beacon.time;
     ack.this_node = beacon.to_addr;
-    ack.primary_node = dsn_primary_address();
+    ack.primary_node = dsn_primary_address(); //p_meta本机地址
     ack.is_master = true;
     ack.allowed = true;
 
@@ -367,8 +369,10 @@ void failure_detector::on_ping_internal(const beacon_msg &beacon, /*out*/ beacon
     auto node = beacon.from_addr;
 
     worker_map::iterator itr = _workers.find(node);
+    //是新节点
     if (itr == _workers.end()) {
         // if is a new worker, check allow list first if need
+        //在allow list中找不到这个新节点  这里是allow list的唯一应用之处
         if (_use_allow_list && _allow_list.find(node) == _allow_list.end()) {
             dwarn("new worker[%s] is rejected", node.to_string());
             ack.allowed = false;
@@ -381,11 +385,12 @@ void failure_detector::on_ping_internal(const beacon_msg &beacon, /*out*/ beacon
         _workers.insert(std::make_pair(node, record));
 
         report(node, false, true);
-        on_worker_connected(node);
+        on_worker_connected(node);  //set node status true
     } else if (is_time_greater_than(now, itr->second.last_beacon_recv_time)) {
         // update last_beacon_recv_time
         itr->second.last_beacon_recv_time = now;
 
+        //这里debug中的master应该是指运行在master上的，因为后面这个itr->second.node在日志中返回的是replica的地址
         ddebug("master %s update last_beacon_recv_time=%" PRId64,
                itr->second.node.to_string(),
                itr->second.last_beacon_recv_time);
@@ -432,7 +437,7 @@ bool failure_detector::end_ping_internal(::dsn::error_code err, const beacon_ack
     }
 
     master_map::iterator itr = _masters.find(node);
-
+    //收到的beacon ack不是从当前mater来的
     if (itr == _masters.end()) {
         dwarn("received beacon ack without corresponding master, ignore it, "
               "remote_master[%s], local_worker[%s]",
@@ -441,6 +446,7 @@ bool failure_detector::end_ping_internal(::dsn::error_code err, const beacon_ack
         return false;
     }
 
+    //replica node不在白名单中，被探测会拒绝掉
     master_record &record = itr->second;
     if (!ack.allowed) {
         dwarn("worker rejected, stop sending beacon message, "
@@ -452,6 +458,7 @@ bool failure_detector::end_ping_internal(::dsn::error_code err, const beacon_ack
         return false;
     }
 
+    //由于网络等原因，收到了一个过期的ack
     if (!is_time_greater_than(beacon_send_time, record.last_send_time_for_beacon_with_ack)) {
         // out-dated beacon acks, do nothing
         ddebug("ignore out dated beacon acks, send_time(%lld), last_beacon(%lld)",
@@ -460,7 +467,7 @@ bool failure_detector::end_ping_internal(::dsn::error_code err, const beacon_ack
         return false;
     }
 
-    // now the ack is applicable
+    // now the ack is applicable  [applicable]适用的
     if (err != ERR_OK) {
         return true;
     }
@@ -472,11 +479,12 @@ bool failure_detector::end_ping_internal(::dsn::error_code err, const beacon_ack
               ack.primary_node.to_string());
         return true;
     }
-
+    //把这条合规的beacon发送时间记录到record中
     // update last_send_time_for_beacon_with_ack
     record.last_send_time_for_beacon_with_ack = beacon_send_time;
     record.rejected = false;
 
+    //心跳发送成功
     ddebug("worker %s send beacon succeed, update last_send_time=%" PRId64,
            record.node.to_string(),
            record.last_send_time_for_beacon_with_ack);
@@ -578,10 +586,10 @@ void failure_detector::send_beacon(::dsn::rpc_address target, uint64_t time)
 {
     beacon_msg beacon;
     beacon.time = time;
-    beacon.from_addr = dsn_primary_address();
+    beacon.from_addr = dsn_primary_address(); //replica的地址，或许这里的primary是指replica的primary副本
     beacon.to_addr = target;
     beacon.__set_start_time(static_cast<int64_t>(dsn::utils::process_start_millis()));
-
+    //任意去一个集群的replica上查看日志，发现from的地址都是replica，to的是meta
     ddebug("send ping message, from[%s], to[%s], time[%" PRId64 "]",
            beacon.from_addr.to_string(),
            beacon.to_addr.to_string(),
@@ -593,6 +601,7 @@ void failure_detector::send_beacon(::dsn::rpc_address target, uint64_t time)
                      &_tracker,
                      [=](error_code err, beacon_ack &&resp) {
                          if (err != ::dsn::ERR_OK) {
+                            //发送有问题
                              beacon_ack ack;
                              ack.time = beacon.time;
                              ack.this_node = beacon.to_addr;
