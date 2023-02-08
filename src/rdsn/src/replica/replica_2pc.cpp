@@ -65,6 +65,7 @@ void replica::on_client_write(dsn::message_ex *request, bool ignore_throttling)
         return;
     }
 
+    //unlikely gcc编译优化，使用 unlikely()，执行 else 后面的语句的机会更大
     if (dsn_unlikely(_stub->_max_allowed_write_size &&
                      request->body_size() > _stub->_max_allowed_write_size)) {
         std::string request_info = _app->dump_write_request(request);
@@ -79,7 +80,7 @@ void replica::on_client_write(dsn::message_ex *request, bool ignore_throttling)
         response_client_write(request, ERR_INVALID_DATA);
         return;
     }
-
+    //[spec 规格]
     task_spec *spec = task_spec::get(request->rpc_code());
     if (dsn_unlikely(nullptr == spec || request->rpc_code() == TASK_CODE_INVALID)) {
         derror_f("recv message with unhandled rpc name {} from {}, trace_id = {}",
@@ -89,7 +90,7 @@ void replica::on_client_write(dsn::message_ex *request, bool ignore_throttling)
         response_client_write(request, ERR_HANDLER_NOT_FOUND);
         return;
     }
-
+    //[idempotent 幂等的]
     if (is_duplication_master() && !spec->rpc_request_is_write_idempotent) {
         // Ignore non-idempotent write, because duplication provides no guarantee of atomicity to
         // make this write produce the same result on multiple clusters.
@@ -100,6 +101,7 @@ void replica::on_client_write(dsn::message_ex *request, bool ignore_throttling)
 
     CHECK_REQUEST_IF_SPLITTING(write)
 
+    //client写入只和primary交互
     if (partition_status::PS_PRIMARY != status()) {
         response_client_write(request, ERR_INVALID_STATE);
         return;
@@ -121,7 +123,7 @@ void replica::on_client_write(dsn::message_ex *request, bool ignore_throttling)
         }
         return;
     }
-
+    //表正在做bulkload的ingesting  RPC_RRDB_RRDB_BULK_LOAD是bulk load ingestion request
     if (request->rpc_code() == dsn::apps::RPC_RRDB_RRDB_BULK_LOAD) {
         auto cur_bulk_load_status = _bulk_loader->get_bulk_load_status();
         if (cur_bulk_load_status != bulk_load_status::BLS_DOWNLOADED &&
@@ -136,7 +138,7 @@ void replica::on_client_write(dsn::message_ex *request, bool ignore_throttling)
         // bulk load ingestion request requires that all secondaries should be alive
         if (static_cast<int>(_primary_states.membership.secondaries.size()) + 1 <
             _primary_states.membership.max_replica_count) {
-            response_client_write(request, ERR_NOT_ENOUGH_MEMBER);
+            response_client_write(request, 2);
             return;
         }
         _is_bulk_load_ingestion = true;
@@ -148,7 +150,7 @@ void replica::on_client_write(dsn::message_ex *request, bool ignore_throttling)
         response_client_write(request, ERR_NOT_ENOUGH_MEMBER);
         return;
     }
-
+    //不考虑限流或者没触发限流
     if (!ignore_throttling && throttle_write_request(request)) {
         return;
     }
@@ -196,7 +198,7 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
     // child should prepare mutation synchronously
     mu->set_is_sync_to_child(_primary_states.sync_send_write_request);
 
-    // check bounded staleness
+    // check bounded staleness  [bounded staleness 有界旧一致性]
     if (mu->data.header.decree > last_committed_decree() + _options->staleness_for_commit) {
         err = ERR_CAPACITY_EXCEEDED;
         goto ErrOut;
@@ -222,6 +224,7 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
     // stop prepare if there are too few replicas unless it's a reconciliation
     // for reconciliation, we should ensure every prepared mutation to be committed
     // please refer to PacificA paper
+    ///解释：Data reconciliation (DR) is a term typically used to describe a verification phase during a data migration where the target data is compared against original source data to ensure that the migration architecture has transferred the data correctly.
     if (static_cast<int>(_primary_states.membership.secondaries.size()) + 1 <
             _options->app_mutation_2pc_min_replica_count(_app_info.max_replica_count) &&
         !reconciliation) {
@@ -234,14 +237,17 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
             mu->data.header.decree,
             last_committed_decree());
 
-    // local prepare
+    // local prepare 
+    //请求加入primary本地的prepare
     err = _prepare_list->prepare(mu, partition_status::PS_PRIMARY, pop_all_committed_mutations);
     if (err != ERR_OK) {
         goto ErrOut;
     }
 
     // remote prepare
+    //设置prepare请求的时间戳
     mu->set_prepare_ts();
+    //需要发送的secondary数量  为了learn的potential考虑
     mu->set_left_secondary_ack_count((unsigned int)_primary_states.membership.secondaries.size());
     for (auto it = _primary_states.membership.secondaries.begin();
          it != _primary_states.membership.secondaries.end();
@@ -268,11 +274,16 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
     }
     mu->set_left_potential_secondary_ack_count(count);
 
+    //split的处理
     if (_split_mgr->is_splitting()) {
         _split_mgr->copy_mutation(mu);
     }
-
+    
+    // ???这一块不是很理解???
+    //在下一次prepare请求中会携带上当前primary的commit point，secondary在收取到该commit point之后进行本地提交就可以了
+    //(处理一些上次的提交)
     if (mu->is_logged()) {
+        //该mu在primary上落盘
         do_possible_commit_on_primary(mu);
     } else {
         dassert(mu->data.header.log_offset == invalid_offset,
@@ -280,10 +291,11 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
                 mu->data.header.log_offset);
         dassert(mu->log_task() == nullptr, "");
         int64_t pending_size;
+        //发本地LPC请求，同步的写plog
         mu->log_task() = _private_log->append(mu,
                                               LPC_WRITE_REPLICATION_LOG,
                                               &_tracker,
-                                              std::bind(&replica::on_append_log_completed,
+                                              std::bind(&replica::on_append_log_co mpleted,
                                                         this,
                                                         mu,
                                                         std::placeholders::_1,
@@ -332,17 +344,19 @@ void replica::send_prepare_message(::dsn::rpc_address addr,
     replica_configuration rconfig;
     _primary_states.get_replica_config(status, rconfig, learn_signature);
     rconfig.__set_pop_all(pop_all_committed_mutations);
+    //status表示发送的目标的类型
     if (status == partition_status::PS_SECONDARY && _primary_states.sync_send_write_request) {
         rconfig.__set_split_sync_to_child(true);
     }
 
     {
+        //序列化msg，写到mutation里
         rpc_write_stream writer(msg);
         marshall(writer, get_gpid(), DSF_THRIFT_BINARY);
         marshall(writer, rconfig, DSF_THRIFT_BINARY);
         mu->write_to(writer, msg);
     }
-
+    //map<::dsn::rpc_address, dsn::task_ptr>，注册一下reply回复方法 
     mu->remote_tasks()[addr] =
         rpc::call(addr,
                   msg,
@@ -370,6 +384,7 @@ void replica::do_possible_commit_on_primary(mutation_ptr &mu)
             enum_to_string(status()));
 
     if (mu->is_ready_for_commit()) {
+        //操作prepare_list  commit到rocksBD
         _prepare_list->commit(mu->data.header.decree, COMMIT_ALL_READY);
     }
 }
@@ -385,6 +400,7 @@ void replica::on_prepare(dsn::message_ex *request)
     {
         rpc_read_stream reader(request);
         unmarshall(reader, rconfig, DSF_THRIFT_BINARY);
+        //secondary的Mutation接收请求
         mu = mutation::read_from(reader, request);
         mu->set_is_sync_to_child(rconfig.split_sync_to_child);
         pop_all_committed_mutations = rconfig.pop_all;
@@ -428,7 +444,7 @@ void replica::on_prepare(dsn::message_ex *request)
             return;
         }
     }
-
+    //做一些secondary本地能否写入的校验
     if (partition_status::PS_INACTIVE == status() || partition_status::PS_ERROR == status()) {
         derror("%s: mutation %s on_prepare failed as invalid replica state, state = %s",
                name(),
@@ -453,7 +469,7 @@ void replica::on_prepare(dsn::message_ex *request)
             ack_prepare_message(ERR_INVALID_STATE, mu);
             return;
         }
-
+        //对learn期间的特殊判断 跳过非法的learn期间的状态
         auto learning_status = _potential_secondary_states.learning_status;
         if (learning_status != learner_status::LearningWithPrepare &&
             learning_status != learner_status::LearningSucceeded) {
@@ -478,6 +494,7 @@ void replica::on_prepare(dsn::message_ex *request)
             "invalid status, %s VS %s",
             enum_to_string(rconfig.status),
             enum_to_string(status()));
+            //当前decree已经提交过了
     if (decree <= last_committed_decree()) {
         ack_prepare_message(ERR_OK, mu);
         return;
@@ -496,10 +513,11 @@ void replica::on_prepare(dsn::message_ex *request)
         }
         return;
     }
-
+    //把本轮的新写入请求 加入到本地的prepare_list中
     error_code err = _prepare_list->prepare(mu, status(), pop_all_committed_mutations);
     dassert(err == ERR_OK, "prepare mutation failed, err = %s", err.to_string());
 
+    //判断一下当前replica状态
     if (partition_status::PS_POTENTIAL_SECONDARY == status() ||
         partition_status::PS_SECONDARY == status()) {
         dassert(mu->data.header.decree <=
@@ -523,6 +541,7 @@ void replica::on_prepare(dsn::message_ex *request)
     }
 
     dassert(mu->log_task() == nullptr, "");
+    //同步写plog
     mu->log_task() = _private_log->append(mu,
                                           LPC_WRITE_REPLICATION_LOG,
                                           &_tracker,
@@ -665,6 +684,7 @@ void replica::on_prepare_reply(std::pair<mutation_ptr, partition_status::type> p
                 resp.decree,
                 mu->data.header.decree);
 
+        //回复节点的状态 target是值primary之前发送的'目标'节点
         switch (target_status) {
         case partition_status::PS_SECONDARY:
             dassert(_primary_states.check_exist(node, partition_status::PS_SECONDARY),
@@ -699,6 +719,7 @@ void replica::on_prepare_reply(std::pair<mutation_ptr, partition_status::type> p
                                           ? _options->prepare_timeout_ms_for_secondaries
                                           : _options->prepare_timeout_ms_for_potential_secondaries);
             int delay_time_ms = 5; // delay some time before retry to avoid sending too frequently
+            //太靠近超时时间就不重试了
             if (mu->is_prepare_close_to_timeout(delay_time_ms + 2, prepare_timeout_ms)) {
                 derror("%s: mutation %s do not retry prepare to %s for no enought time left, "
                        "prepare_ts_ms = %" PRIu64 ", prepare_timeout_ms = %d, now_ms = %" PRIu64,
@@ -748,8 +769,8 @@ void replica::on_prepare_reply(std::pair<mutation_ptr, partition_status::type> p
         _stub->_counter_replicas_recent_prepare_fail_count->increment();
 
         // make sure this is before any later commit ops
-        // because now commit ops may lead to new prepare ops
-        // due to replication throttling
+        // because now commit ops may lead to new prepare ops 新的提交导致新的prepare
+        // due to replication throttling  因为replica限流
         handle_remote_failure(st, node, resp.err, "prepare");
 
         // note targetStatus and (curent) status may diff

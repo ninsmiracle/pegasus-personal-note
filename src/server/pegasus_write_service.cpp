@@ -152,10 +152,12 @@ int pegasus_write_service::multi_put(const db_write_context &ctx,
                                      dsn::apps::update_response &resp)
 {
     uint64_t start_time = dsn_now_ns();
+    //更新写qps
     _pfc_multi_put_qps->increment();
     int err = _impl->multi_put(ctx, update, resp);
 
     if (_server->is_primary()) {
+        //加写吞吐
         _cu_calculator->add_multi_put_cu(resp.error, update.hash_key, update.kvs);
     }
 

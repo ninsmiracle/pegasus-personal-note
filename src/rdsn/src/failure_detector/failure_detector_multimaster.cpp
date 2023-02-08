@@ -111,6 +111,7 @@ void slave_failure_detector_with_multimaster::end_ping(::dsn::error_code err,
                 switch_master(ack.this_node, next, 1000);
             }
         } else {
+            //如果meta可以从ZK上找到master，直接切过去
             _meta_servers.group_address()->set_leader(ack.primary_node);
             // start next send_beacon() immediately because the leader is possibly right.
             switch_master(ack.this_node, ack.primary_node, 0);

@@ -117,6 +117,7 @@ bool meta_server_failure_detector::get_leader(rpc_address *leader)
     } else {
         std::string lock_owner;
         uint64_t version;
+        //这里查看的是ZK上lock路径下的primary meta
         error_code err = _lock_svc->query_cache(_primary_lock_id, lock_owner, version);
         if (err == dsn::ERR_OK && leader->from_string_ipv4(lock_owner.c_str())) {
             return (*leader) == dsn_primary_address();
@@ -140,7 +141,7 @@ void meta_server_failure_detector::acquire_leader_lock()
         auto tasks = _lock_svc->lock(
             _primary_lock_id,
             dsn_primary_address().to_std_string(),
-            // lock granted
+            // lock granted 已授予锁
             LPC_META_SERVER_LEADER_LOCK_CALLBACK,
             [this, &err](error_code ec, const std::string &owner, uint64_t version) {
                 ddebug("leader lock granted callback: err(%s), owner(%s), version(%llu)",
@@ -153,7 +154,7 @@ void meta_server_failure_detector::acquire_leader_lock()
                 }
             },
 
-            // lease expire
+            // lease expire  租约到期
             LPC_META_SERVER_LEADER_LOCK_CALLBACK,
             [](error_code ec, const std::string &owner, uint64_t version) {
                 derror("leader lock expired callback: err(%s), owner(%s), version(%llu)",
@@ -272,7 +273,9 @@ void meta_server_failure_detector::on_ping(const fd::beacon_msg &beacon,
     }
 
     dsn::rpc_address leader;
+    //去查了ZK
     if (!get_leader(&leader)) {
+        //本节点不是primary meta
         ack.is_master = false;
         ack.primary_node = leader;
     } else {

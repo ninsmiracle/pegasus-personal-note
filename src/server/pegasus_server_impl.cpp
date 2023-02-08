@@ -351,6 +351,7 @@ void pegasus_server_impl::on_get(get_rpc rpc)
 void pegasus_server_impl::on_multi_get(multi_get_rpc rpc)
 {
     dassert(_is_open, "");
+    //一个multiget只增加一个multiget计数器请求
     _pfc_multi_get_qps->increment();
     uint64_t start_time = dsn_now_ns();
 
@@ -361,6 +362,7 @@ void pegasus_server_impl::on_multi_get(multi_get_rpc rpc)
     resp.partition_index = _gpid.get_partition_index();
     resp.server = _primary_address;
 
+    //超出读限流吞吐
     if (!_read_size_throttling_controller->available()) {
         rpc.error() = dsn::ERR_BUSY;
         _counter_recent_read_throttling_reject_count->increment();
@@ -374,6 +376,7 @@ void pegasus_server_impl::on_multi_get(multi_get_rpc rpc)
                rpc.remote_address().to_string(),
                request.sort_key_filter_type);
         resp.error = rocksdb::Status::kInvalidArgument;
+        //增加读限流计数
         _cu_calculator->add_multi_get_cu(req, resp.error, request.hash_key, resp.kvs);
         _pfc_multi_get_latency->set(dsn_now_ns() - start_time);
         return;
