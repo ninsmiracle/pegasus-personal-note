@@ -174,6 +174,7 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
     error_code err = ERR_OK;
     uint8_t count = 0;
     const auto request_count = mu->client_requests.size();
+    //prepare list中最后一次提交的decree决议
     mu->data.header.last_committed_decree = last_committed_decree();
 
     dsn_log_level_t level = LOG_LEVEL_INFORMATION;
@@ -195,7 +196,7 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
          mu->name(),
          mu->tid());
 
-    // child should prepare mutation synchronously
+    // child should prepare mutation synchronously 同步的
     mu->set_is_sync_to_child(_primary_states.sync_send_write_request);
 
     // check bounded staleness  [bounded staleness 有界旧一致性]
@@ -203,6 +204,8 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
         err = ERR_CAPACITY_EXCEEDED;
         goto ErrOut;
     }
+
+    //以上代码检查了一下关于decree决议的一些东西，保证了同步性和有界旧一致性。[2023/2细节暂不清楚]
 
     // stop prepare bulk load ingestion if there are secondaries unalive
     for (auto i = 0; i < request_count; ++i) {
@@ -278,12 +281,11 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
     if (_split_mgr->is_splitting()) {
         _split_mgr->copy_mutation(mu);
     }
-    
-    // ???这一块不是很理解???
-    //在下一次prepare请求中会携带上当前primary的commit point，secondary在收取到该commit point之后进行本地提交就可以了
-    //(处理一些上次的提交)
+    /// ???这里为啥是mu而不是prepare_list?  说是处理上轮的ack有点说不通
+    //处理上一轮secondary返回的ack，里面的ready在primary上的落盘
+    //标志位是'mu写过plog'  这个标志位只有在写plog成功后才会被改变
     if (mu->is_logged()) {
-        //该mu在primary上落盘
+        //该mu已经写了Plog，这会儿写rocksdb就好了
         do_possible_commit_on_primary(mu);
     } else {
         dassert(mu->data.header.log_offset == invalid_offset,
@@ -295,7 +297,7 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
         mu->log_task() = _private_log->append(mu,
                                               LPC_WRITE_REPLICATION_LOG,
                                               &_tracker,
-                                              std::bind(&replica::on_append_log_co mpleted,
+                                              std::bind(&replica::on_append_log_completed,
                                                         this,
                                                         mu,
                                                         std::placeholders::_1,
@@ -384,7 +386,7 @@ void replica::do_possible_commit_on_primary(mutation_ptr &mu)
             enum_to_string(status()));
 
     if (mu->is_ready_for_commit()) {
-        //操作prepare_list  commit到rocksBD
+        //把prepare_list中所有ready的  commit到rocksBD
         _prepare_list->commit(mu->data.header.decree, COMMIT_ALL_READY);
     }
 }
@@ -503,6 +505,7 @@ void replica::on_prepare(dsn::message_ex *request)
     // real prepare start
     _uniq_timestamp_us.try_update(mu->data.header.timestamp);
     auto mu2 = _prepare_list->get_mutation_by_decree(decree);
+    // ??? 有一个拼接mutation的过程，但这个Mu2和mu的区别暂不明确
     if (mu2 != nullptr && mu2->data.header.ballot == mu->data.header.ballot) {
         if (mu2->is_logged()) {
             // already logged, just response ERR_OK
@@ -566,6 +569,8 @@ void replica::on_append_log_completed(mutation_ptr &mu, error_code err, size_t s
 
     ADD_POINT(mu->_tracer);
 
+    //这个是写完plog的回调，修改好这个mutation的标志位
+    // set mutation has been logged in private log
     if (err == ERR_OK) {
         mu->set_logged();
     } else {
@@ -578,6 +583,7 @@ void replica::on_append_log_completed(mutation_ptr &mu, error_code err, size_t s
     // skip old mutations
     if (mu->data.header.ballot >= get_ballot() && status() != partition_status::PS_INACTIVE) {
         switch (status()) {
+        // ???  场景未知，难道on_prepare不是仅在secondary上执行的吗？
         case partition_status::PS_PRIMARY:
             if (err == ERR_OK) {
                 do_possible_commit_on_primary(mu);
