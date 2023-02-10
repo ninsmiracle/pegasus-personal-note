@@ -275,15 +275,15 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
             count++;
         }
     }
+    //primary需要收到count个secondary的回复
     mu->set_left_potential_secondary_ack_count(count);
 
     //split的处理
     if (_split_mgr->is_splitting()) {
         _split_mgr->copy_mutation(mu);
     }
-    /// ???这里为啥是mu而不是prepare_list?  说是处理上轮的ack有点说不通
-    //处理上一轮secondary返回的ack，里面的ready在primary上的落盘
-    //标志位是'mu写过plog'  这个标志位只有在写plog成功后才会被改变
+    
+    //同步的把这个mutation写到plog里面
     if (mu->is_logged()) {
         //该mu已经写了Plog，这会儿写rocksdb就好了
         do_possible_commit_on_primary(mu);
@@ -505,6 +505,7 @@ void replica::on_prepare(dsn::message_ex *request)
     // real prepare start
     _uniq_timestamp_us.try_update(mu->data.header.timestamp);
     auto mu2 = _prepare_list->get_mutation_by_decree(decree);
+
     // ??? 有一个拼接mutation的过程，但这个Mu2和mu的区别暂不明确
     if (mu2 != nullptr && mu2->data.header.ballot == mu->data.header.ballot) {
         if (mu2->is_logged()) {
@@ -557,6 +558,7 @@ void replica::on_prepare(dsn::message_ex *request)
     dassert(nullptr != mu->log_task(), "");
 }
 
+//写日志之后的回调
 void replica::on_append_log_completed(mutation_ptr &mu, error_code err, size_t size)
 {
     _checker.only_one_thread_access();
@@ -581,13 +583,16 @@ void replica::on_append_log_completed(mutation_ptr &mu, error_code err, size_t s
     }
 
     // skip old mutations
+    //只处理新的mutaition
     if (mu->data.header.ballot >= get_ballot() && status() != partition_status::PS_INACTIVE) {
         switch (status()) {
-        // ???  场景未知，难道on_prepare不是仅在secondary上执行的吗？
+        // 在init prepare中也有一个plog->append，写完了落盘
         case partition_status::PS_PRIMARY:
             if (err == ERR_OK) {
+                // 把！已经ready！过的写到rocksDB里
                 do_possible_commit_on_primary(mu);
             } else {
+                //err说明写日志失败，说明节点有问题，断开连接
                 handle_local_failure(err);
             }
             break;
@@ -599,6 +604,7 @@ void replica::on_append_log_completed(mutation_ptr &mu, error_code err, size_t s
             // always ack
             ack_prepare_message(err, mu);
             // all mutations with lower decree must be ready
+            //本轮decree之前的请求都提交掉
             _prepare_list->commit(mu->data.header.last_committed_decree, COMMIT_TO_DECREE_HARD);
             break;
         case partition_status::PS_PARTITION_SPLIT:
@@ -616,6 +622,7 @@ void replica::on_append_log_completed(mutation_ptr &mu, error_code err, size_t s
     }
 
     if (err != ERR_OK) {
+        //[propagate  传播]
         // mutation log failure, propagate to all replicas
         _stub->handle_log_failure(err);
     }
@@ -697,6 +704,7 @@ void replica::on_prepare_reply(std::pair<mutation_ptr, partition_status::type> p
                     "invalid secondary node address, address = %s",
                     node.to_string());
             dassert(mu->left_secondary_ack_count() > 0, "%u", mu->left_secondary_ack_count());
+            //全部的secondary都返回了 commit prmary上的is_ready信息
             if (0 == mu->decrease_left_secondary_ack_count()) {
                 do_possible_commit_on_primary(mu);
             }
@@ -748,6 +756,7 @@ void replica::on_prepare_reply(std::pair<mutation_ptr, partition_status::type> p
                         learn_signature = it->second.signature;
                     }
                 }
+                //重新给secondary发送prepare信息
                 tasking::enqueue(
                     LPC_DELAY_PREPARE,
                     &_tracker,
@@ -772,11 +781,13 @@ void replica::on_prepare_reply(std::pair<mutation_ptr, partition_status::type> p
             }
         }
 
+        //不可重试的部分
         _stub->_counter_replicas_recent_prepare_fail_count->increment();
 
         // make sure this is before any later commit ops
         // because now commit ops may lead to new prepare ops 新的提交导致新的prepare
         // due to replication throttling  因为replica限流
+        //处理失败，主要是做了一些断连
         handle_remote_failure(st, node, resp.err, "prepare");
 
         // note targetStatus and (curent) status may diff
@@ -846,7 +857,7 @@ void replica::cleanup_preparing_mutations(bool wait)
 
             //
             // make sure the buffers from mutations are valid for underlying aio
-            //
+            //确保mutation的Buffer对于底层的aio来说是有效的
             if (wait) {
                 if (dsn_unlikely(_private_log != nullptr)) {
                     _private_log->flush();

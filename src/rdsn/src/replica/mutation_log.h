@@ -50,7 +50,7 @@ class replica;
 class mutation_log : public ref_counter
 {
 public:
-    // DEPRECATED: The returned bool value will never be evaluated.
+    // DEPRECATED: The returned bool value will never be evaluated. [evaluated 评估(判断)]
     // Always return true in the callback.
     typedef std::function<bool(int log_length, mutation_ptr &)> replay_callback;
 

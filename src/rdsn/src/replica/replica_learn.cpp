@@ -818,7 +818,7 @@ void replica::on_learn_reply(error_code err, learn_request &&req, learn_response
                enum_to_string(_potential_secondary_states.learning_status));
 
         // persist incoming mutations into private log and apply them to prepare-list
-        //重放Primary Response中返回的数据
+        //写入Primary Response中的增量零散的Mutation 写日志并应用到prepare_list中
         std::pair<decree, decree> cache_range;
         binary_reader reader(resp.state.meta);
         while (!reader.is_eof()) {
@@ -851,6 +851,7 @@ void replica::on_learn_reply(error_code err, learn_request &&req, learn_response
                            mu->name(),
                            existing_mutation->data.header.ballot);
                 } else {
+                    //永远是先写日志再写rocksDB，这样下一轮2pc再来真实写这个已经加入到prepare_list的mutation
                     _prepare_list->prepare(mu, partition_status::PS_POTENTIAL_SECONDARY);
                 }
 
