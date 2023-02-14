@@ -46,7 +46,7 @@
 namespace dsn {
 namespace replication {
 
-//这哥们运行在potential secondary上
+//这方法运行在potential secondary上
 void replica::init_learn(uint64_t signature)
 {
     _checker.only_one_thread_access();
@@ -277,7 +277,7 @@ decree replica::get_learn_start_decree(const learn_request &request) // on prima
         // fast path for no duplication case: only learn those that the learner is not having.
         return learn_start_decree_no_dup;
     }
-
+    ///replica_duplicator_manager ->min_confirmed_decree
     decree min_confirmed_decree = _duplication_mgr->min_confirmed_decree();
 
     // Learner should include the mutations not confirmed by meta server

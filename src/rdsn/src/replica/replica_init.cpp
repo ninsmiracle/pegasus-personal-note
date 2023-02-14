@@ -255,7 +255,7 @@ error_code replica::init_app_and_prepare_list(bool create_new)
                 get_gpid(), _app->init_info().init_offset_in_shared_log);
             _private_log->set_valid_start_offset_on_open(
                 get_gpid(), _app->init_info().init_offset_in_private_log);
-
+            //路径已经存在，加载过去的Log文件重放数据
             // replay the logs
             {
                 std::map<gpid, decree> replay_condition;
@@ -377,7 +377,7 @@ bool replica::replay_mutation(mutation_ptr &mu, bool is_private)
     auto offset = mu->data.header.log_offset;
 
     // it's very import to keep the ballot.
-    // for example, the recovery need it to select a proper primary
+    // for example, the recovery need it to select a proper primary [proper 恰当的]
     if (mu->data.header.ballot > get_ballot()) {
         _config.ballot = mu->data.header.ballot;
         bool ret = update_local_configuration(_config, true);

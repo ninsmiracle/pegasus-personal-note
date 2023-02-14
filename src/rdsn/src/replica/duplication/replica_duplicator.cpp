@@ -66,6 +66,7 @@ void replica_duplicator::prepare_dup()
                    _replica->last_durable_decree(),
                    _start_point_decree < _replica->last_durable_decree());
 
+    //打一个_start_point_decree开始的checkpoint
     tasking::enqueue(
         LPC_REPLICATION_COMMON,
         &_tracker,
@@ -80,6 +81,8 @@ void replica_duplicator::start_dup_log()
                    _progress.last_decree,
                    _progress.confirmed_decree);
 
+
+    //整了个管道，传送用
     /// ===== pipeline declaration ===== ///
 
     // load -> ship -> load

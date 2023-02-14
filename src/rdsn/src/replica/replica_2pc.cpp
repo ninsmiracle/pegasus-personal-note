@@ -250,7 +250,7 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
     // remote prepare
     //设置prepare请求的时间戳
     mu->set_prepare_ts();
-    //需要发送的secondary数量  为了learn的potential考虑
+    //需要发送的secondary数量  为了解决有secondary不回复ack的问题 这种情况将该secondary设为INACTIVE,随后调用learn
     mu->set_left_secondary_ack_count((unsigned int)_primary_states.membership.secondaries.size());
     for (auto it = _primary_states.membership.secondaries.begin();
          it != _primary_states.membership.secondaries.end();
@@ -275,7 +275,7 @@ void replica::init_prepare(mutation_ptr &mu, bool reconciliation, bool pop_all_c
             count++;
         }
     }
-    //primary需要收到count个secondary的回复
+    //primary需要收到count个 potential secondary的回复
     mu->set_left_potential_secondary_ack_count(count);
 
     //split的处理
@@ -703,8 +703,10 @@ void replica::on_prepare_reply(std::pair<mutation_ptr, partition_status::type> p
             dassert(_primary_states.check_exist(node, partition_status::PS_SECONDARY),
                     "invalid secondary node address, address = %s",
                     node.to_string());
+            //断言，如果left_secondary_ack_count不大于零，出Bug了打coredump
             dassert(mu->left_secondary_ack_count() > 0, "%u", mu->left_secondary_ack_count());
-            //全部的secondary都返回了 commit prmary上的is_ready信息
+            //left_secondary_ack_count递减
+            //等于0意味着全部的secondary都返回了 commit prmary上的is_ready信息
             if (0 == mu->decrease_left_secondary_ack_count()) {
                 do_possible_commit_on_primary(mu);
             }

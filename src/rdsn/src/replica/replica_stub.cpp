@@ -597,7 +597,7 @@ void replica_stub::initialize(const replication_options &opts, bool clear /* = f
            static_cast<int>(rps.size()),
            finish_time - start_time);
 
-    // init shared prepare log
+    //重放slog  根据情况恢复到plog中 
     ddebug("start to replay shared log");
 
     std::map<gpid, decree> replay_condition;
@@ -606,10 +606,13 @@ void replica_stub::initialize(const replication_options &opts, bool clear /* = f
     }
 
     start_time = dsn_now_ms();
+    //open方法设置了read_callback，write_error_callback回调函数，mu是读取文件偏移量处的mutation
     error_code err = _log->open(
         [&rps](int log_length, mutation_ptr &mu) {
+            //查看现在还有没有这个pid
             auto it = rps.find(mu->data.header.pid);
             if (it != rps.end()) {
+                //重放这个pid的slog到plog中
                 return it->second->replay_mutation(mu, false);
             } else {
                 return false;
@@ -693,7 +696,7 @@ void replica_stub::initialize(const replication_options &opts, bool clear /* = f
             it->second->get_app()->init_info().init_offset_in_shared_log);
     }
 
-    // we will mark all replicas inactive not transient unless all logs are complete
+    // we will mark all replicas inactive not transient unless all logs are complete  [transient 短暂的]
     if (!is_log_complete) {
         derror("logs are not complete for some replicas, which means that shared log is truncated, "
                "mark all replicas as inactive");

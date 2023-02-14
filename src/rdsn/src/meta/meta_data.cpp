@@ -539,6 +539,7 @@ bool app_state_helper::get_manual_compact_progress(/*out*/ int32_t &progress) co
     int32_t finish_count = 0, idle_count = 0;
     for (const auto &cc : contexts) {
         for (const auto &r : cc.serving) {
+            //[idle  闲置的]
             if (r.compact_status == manual_compaction_status::IDLE) {
                 idle_count++;
             } else if (r.compact_status == manual_compaction_status::FINISHED) {
@@ -589,7 +590,7 @@ const partition_set *node_state::get_partitions(int app_id, bool only_primary) c
 {
     const std::map<int32_t, partition_set> *all_partitions;
     if (only_primary)
-        //app_primaries是个map: app_id -> gpid
+        //app_primaries是个map: app_id -> set<gpid>
         all_partitions = &app_primaries;
     else
         all_partitions = &app_partitions;
