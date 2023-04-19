@@ -401,6 +401,7 @@ void pegasus_server_impl::on_multi_get(multi_get_rpc rpc)
     int32_t expire_count = 0;
     int32_t filter_count = 0;
 
+    //sort key若空，选定一个range
     if (request.sort_keys.empty()) {
         ::dsn::blob range_start_key, range_stop_key;
         pegasus_generate_key(range_start_key, request.hash_key, request.start_sortkey);
@@ -472,7 +473,7 @@ void pegasus_server_impl::on_multi_get(multi_get_rpc rpc)
 
         std::unique_ptr<rocksdb::Iterator> it;
         bool complete = false;
-
+        //读限流器
         std::unique_ptr<range_read_limiter> limiter =
             dsn::make_unique<range_read_limiter>(max_iteration_count,
                                                  max_iteration_size,
@@ -482,6 +483,7 @@ void pegasus_server_impl::on_multi_get(multi_get_rpc rpc)
             it.reset(_db->NewIterator(_data_cf_rd_opts, _data_cf));
             it->Seek(start);
             bool first_exclusive = !start_inclusive;
+            //limit限流器里面也限制了迭代次数
             while (count < max_kv_count && limiter->valid() && it->Valid()) {
                 // check stop sort key
                 int c = it->key().compare(stop);
@@ -511,7 +513,7 @@ void pegasus_server_impl::on_multi_get(multi_get_rpc rpc)
                                                             request.sort_key_filter_pattern,
                                                             epoch_now,
                                                             request.no_value);
-
+                
                 switch (state) {
                 case range_iteration_state::kNormal: {
                     count++;
@@ -572,7 +574,7 @@ void pegasus_server_impl::on_multi_get(multi_get_rpc rpc)
                         continue;
                     }
                 }
-
+                //限流器count递增
                 limiter->add_count();
 
                 // extract value
@@ -618,6 +620,7 @@ void pegasus_server_impl::on_multi_get(multi_get_rpc rpc)
                 }
             }
         }
+        //以上代码已经进行了实际的value读取，append_key_value_for_multi_get
 
         iteration_count = limiter->get_iteration_count();
         resp.error = it->status().code();
@@ -651,6 +654,7 @@ void pegasus_server_impl::on_multi_get(multi_get_rpc rpc)
                     limiter->max_duration_time());
             }
         }
+        //到这里sort key为空的范围get就结束了
     } else { // condition: !request.sort_keys.empty()
         bool error_occurred = false;
         rocksdb::Status final_status;
@@ -1113,7 +1117,6 @@ void pegasus_server_impl::on_get_scanner(get_scanner_rpc rpc)
     ::dsn::blob prefix_start_key;
     if (request.hash_key_filter_type == ::dsn::apps::filter_type::FT_MATCH_PREFIX &&
         request.hash_key_filter_pattern.length() > 0) {
-        pegasus_generate_key(prefix_start_key, request.hash_key_filter_pattern, ::dsn::blob());
         rocksdb::Slice prefix_start(prefix_start_key.data(), prefix_start_key.length());
         if (prefix_start.compare(start) > 0) {
             start = prefix_start;

@@ -1082,7 +1082,7 @@ void replica_stub::on_query_disk_info(query_disk_info_rpc rpc)
         info.full_dir = dir_node->full_dir;
         info.disk_capacity_mb = dir_node->disk_capacity_mb;
         info.disk_available_mb = dir_node->disk_available_mb;
-
+        
         resp.disk_infos.emplace_back(info);
     }
 
@@ -1376,7 +1376,7 @@ void replica_stub::query_configuration_by_node()
 
     ddebug("send query node partitions request to meta server, stored_replicas_count = %d",
            (int)req.stored_replicas.size());
-
+    //target 是 _meta_servers
     rpc_address target(_failure_detector->get_servers());
     _config_query_task =
         rpc::call(target,

@@ -51,6 +51,7 @@ replica_duplicator::replica_duplicator(const duplication_entry &ent, replica *r)
                    it->second);
     thread_pool(LPC_REPLICATION_LOW).task_tracker(tracker()).thread_hash(get_gpid().thread_hash());
 
+    //同步checkpoint点
     if (_status == duplication_status::DS_PREPARE) {
         prepare_dup();
     } else if (_status == duplication_status::DS_LOG) {

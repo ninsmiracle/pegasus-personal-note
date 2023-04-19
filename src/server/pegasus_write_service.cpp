@@ -309,6 +309,7 @@ void pegasus_write_service::clear_up_batch_states()
     _batch_start_time = 0;
 }
 
+//收到duplicate的RPC处理
 int pegasus_write_service::duplicate(int64_t decree,
                                      const dsn::apps::duplicate_request &requests,
                                      dsn::apps::duplicate_response &resp)
@@ -326,6 +327,7 @@ int pegasus_write_service::duplicate(int64_t decree,
             return empty_put(decree);
         }
 
+        //duplication qps增加
         _pfc_duplicate_qps->increment();
         auto cleanup = dsn::defer([this, &request]() {
             uint64_t latency_ms = (dsn_now_us() - request.timestamp) / 1000;

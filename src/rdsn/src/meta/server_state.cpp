@@ -797,7 +797,7 @@ void server_state::set_replica_migration_subscriber_for_test(
     _replica_migration_subscriber = subscriber;
 }
 
-// partition server => meta server
+// partition server => meta server    这个方法运行在meta上，用来接replica发来的同步请求
 // this is done in meta_state_thread_pool
 void server_state::on_config_sync(configuration_query_by_node_rpc rpc)
 {
@@ -814,6 +814,7 @@ void server_state::on_config_sync(configuration_query_by_node_rpc rpc)
         zauto_read_lock l(_lock);
 
         // sync the partitions to the replica server
+        //从meta发给node replica  node_mapper里面找node
         node_state *ns = get_node_state(_nodes, request.node, false);
         if (ns == nullptr) {
             ddebug("node(%s) not found in meta server", request.node.to_string());
@@ -947,6 +948,8 @@ void server_state::on_config_sync(configuration_query_by_node_rpc rpc)
                 response.__isset.gc_replicas = true;
             }
         }
+
+        
     }
 
     if (reject_this_request) {
@@ -963,7 +966,7 @@ void server_state::on_config_sync(configuration_query_by_node_rpc rpc)
 
 bool server_state::query_configuration_by_gpid(dsn::gpid id,
                                                /*out*/ partition_configuration &config)
-{
+{   
     zauto_read_lock l(_lock);
     const partition_configuration *pc = get_config(_all_apps, id);
     if (pc != nullptr) {
@@ -2424,6 +2427,7 @@ bool server_state::check_all_partitions()
     std::vector<gpid> add_secondary_gpids;
     std::vector<bool> add_secondary_proposed;
     std::map<rpc_address, int> add_secondary_running_nodes; // node --> running_count
+    //大循环，对每个表都操作
     for (auto &app_pair : _exist_apps) {
         std::shared_ptr<app_state> &app = app_pair.second;
         if (app->status == app_status::AS_CREATING || app->status == app_status::AS_DROPPING) {
@@ -2432,7 +2436,8 @@ bool server_state::check_all_partitions()
                    app->app_id,
                    ::dsn::enum_to_string(app->status));
             continue;
-        }
+        } 
+        //遍历表中的partition
         for (unsigned int i = 0; i != app->partition_count; ++i) {
             partition_configuration &pc = app->partitions[i];
             config_context &cc = app->helpers->contexts[i];
@@ -2558,7 +2563,7 @@ bool server_state::check_all_partitions()
         _meta_svc->get_balancer()->report(_temporary_list, true);
         return false;
     }
-
+    //第一个参数就是meta_view  即两个map的结构体，map<app_id, std::shared_ptr<app_state>>，unordered_map<rpc_address, node_state>
     if (_meta_svc->get_balancer()->balance({&_all_apps, &_nodes}, _temporary_list)) {
         ddebug("try to do replica migration");
         _meta_svc->get_balancer()->apply_balancer({&_all_apps, &_nodes}, _temporary_list);
@@ -3094,6 +3099,7 @@ void server_state::update_compaction_envs_on_remote_storage(start_manual_compact
             app->envs[keys[idx]] = values[idx];
         }
         std::string new_envs = dsn::utils::kv_map_to_string(app->envs, ',', '=');
+        //仅在手动执行manual compact后打印
         ddebug_f("update manual compaction envs succeed: old_envs = {}, new_envs = {}",
                  old_envs,
                  new_envs);

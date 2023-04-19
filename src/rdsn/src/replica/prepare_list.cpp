@@ -91,6 +91,8 @@ error_code prepare_list::prepare(mutation_ptr &mu,
     case partition_status::PS_POTENTIAL_SECONDARY:
         // all mutations with lower decree must be ready
         if (secondary_commit) {
+            //这一次的prepare请求中会携带上次primary的commit point
+            //secondary接到这个commit point 进行真实提交
             commit(mu->data.header.last_committed_decree, COMMIT_TO_DECREE_HARD);
         }
         // pop committed mutations if buffer is full or pop_all_committed_mutations = true
@@ -141,7 +143,7 @@ error_code prepare_list::prepare(mutation_ptr &mu,
 }
 
 //
-// ordered commit
+//ordered commit
 //
 void prepare_list::commit(decree d, commit_type ct)
 {

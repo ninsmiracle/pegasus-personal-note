@@ -170,6 +170,7 @@ public:
 
             uint32_t higher_count = 0, lower_count = 0;
             for (const auto &node : _nodes) {
+                //该节点上关于这个app的primary的数量
                 int primary_count = node.second.primary_count(_app->app_id);
                 if (primary_count > replicas_high) {
                     higher_count++;

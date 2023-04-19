@@ -175,6 +175,7 @@ bool pegasus_manual_compact_service::check_periodic_compact(
     }
 
     std::list<std::string> trigger_time_strs;
+    //可以有多个compact触发时间，用逗号分割
     dsn::utils::split_args(find->second.c_str(), trigger_time_strs, ',');
     if (trigger_time_strs.empty()) {
         derror_replica("{}={} is invalid.", find->first, find->second);
@@ -309,7 +310,7 @@ uint64_t pegasus_manual_compact_service::begin_manual_compact()
     return start;
 }
 
-void pegasus_manual_compact_service::end_manual_compact(uint64_t start, uint64_t finish)
+void pegasus_manual_compact_service:://(uint64_t start, uint64_t finish)
 {
     ddebug_replica("finish to execute manual compaction, time_used = {}ms", finish - start);
     _manual_compact_last_finish_time_ms.store(finish);

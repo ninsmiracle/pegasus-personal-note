@@ -56,7 +56,7 @@ private:
                                 /*out*/ app_migration_info &info);
     void get_node_migration_info(const node_state &ns,
                                  const app_mapper &all_apps,
-                                 /*out*/ node_migration_info &info);
+                                 /*out*/ node_migration_info &info);c
     bool get_next_move(const cluster_migration_info &cluster_info,
                        const partition_set &selected_pid,
                        /*out*/ move_info &next_move);
@@ -82,11 +82,13 @@ private:
                     /*out*/ migration_list &list,
                     /*out*/ cluster_migration_info &cluster_info);
 
+    //表信息，拥有表address和分片类型的map
     struct app_migration_info
     {
         int32_t app_id;
         std::string app_name;
         std::vector<std::map<rpc_address, partition_status::type>> partitions;
+        //这张表在这个机器上的replica总个数
         std::map<rpc_address, uint32_t> replicas_count;
         bool operator<(const app_migration_info &another) const
         {
@@ -109,6 +111,7 @@ private:
         }
     };
 
+    //磁盘tag -->partition的集合
     struct node_migration_info
     {
         rpc_address address;
@@ -129,7 +132,9 @@ private:
     {
         balance_type type;
         std::map<int32_t, uint32_t> apps_skew;
+        //表Id-->表信息
         std::map<int32_t, app_migration_info> apps_info;
+        //机器地址和机器信息(里面包含了磁盘->partition的)
         std::map<rpc_address, node_migration_info> nodes_info;
         std::map<rpc_address, uint32_t> replicas_count;
     };

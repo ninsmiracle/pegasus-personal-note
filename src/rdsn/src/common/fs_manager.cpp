@@ -311,6 +311,7 @@ void fs_manager::update_disk_stat(bool check_status_changed)
 {
     reset_disk_stat();
     for (auto &dir_node : _dir_nodes) {
+        //dir_node指单一块磁盘
         if (dir_node->update_disk_stat(check_status_changed)) {
             _status_updated_dir_nodes.emplace_back(dir_node);
         }

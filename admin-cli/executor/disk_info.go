@@ -116,7 +116,8 @@ func fillDiskCapacity(client *Client, replicaServer string, resp *radmin.QueryDi
 
 	perfSession := client.Nodes.GetPerfSession(replicaServer, session.NodeTypeReplica)
 	for _, diskInfo := range resp.DiskInfos {
-		// pass disk tag means query one disk detail capacity of replica
+		// pass disk tag means query [one] disk detail capacity of replica
+		//这里的用量获取都是磁盘维度的
 		if len(diskTag) != 0 && diskInfo.Tag == diskTag {
 			partitionStats := util.GetPartitionStat(perfSession, "disk.storage.sst(MB)")
 			appendCapacity := func(replicasWithAppId map[int32][]*base.Gpid, replicaStatus string) {

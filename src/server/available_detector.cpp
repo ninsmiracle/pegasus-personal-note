@@ -204,7 +204,7 @@ std::string get_minute_to_string(uint64_t now_ms)
 
 void available_detector::report_availability_info()
 {
-    uint64_t now_ms = dsn_now_ms();
+    uint64_t now_ms = dsn_now_ms();_client
     _old_day = get_date_to_string(now_ms);
     _old_hour = get_hour_to_string(now_ms);
     _old_minute = get_minute_to_string(now_ms);
@@ -270,6 +270,7 @@ bool available_detector::generate_hash_keys()
 void available_detector::on_detect(int32_t idx)
 {
     if (idx == 0) {
+        //这段写到了collected的log中  第一个分片才打印
         ddebug("detecting table[%s] with app_id[%d] and partition_count[%d] on cluster[%s], "
                "recent_day_detect_times(%" PRId64 "), recent_day_fail_times(%" PRId64 "), "
                "recent_hour_detect_times(%" PRId64 "), recent_hour_fail_times(%" PRId64 ") "
@@ -332,7 +333,7 @@ void available_detector::on_detect(int32_t idx)
             _recent_day_fail_times.fetch_add(1);
             _recent_hour_fail_times.fetch_add(1);
             _recent_minute_fail_times.fetch_add(1);
-            derror("async_set partition[%d] fail, fail_count = %d, hash_key = %s , error = %s",
+            derror("/[%d] fail, fail_count = %d, hash_key = %s , error = %s",
                    idx,
                    prev + 1,
                    _hash_keys[idx].c_str(),
@@ -345,6 +346,7 @@ void available_detector::on_detect(int32_t idx)
         }
     };
 
+    //同时给两侧都设置好了回调函数
     _client->async_set(_hash_keys[idx], "", value, std::move(async_set_callback), _detect_timeout);
 }
 

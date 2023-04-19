@@ -73,6 +73,8 @@ void get_min_max_set(const std::map<rpc_address, uint32_t> &node_count_map,
                      /*out*/ std::set<rpc_address> &min_set,
                      /*out*/ std::set<rpc_address> &max_set)
 {
+    //count_multimap的first是value最小值
+    //flip_map 把value翻到key上来
     std::multimap<uint32_t, rpc_address> count_multimap = utils::flip_map(node_count_map);
     //equal_range是C++ STL中的一种二分查找的算法，试图在已排序的[first,last)中寻找value
     //返回在不破坏次序的前提下，value可插入的第一个位置（亦即lower_bound）
@@ -107,7 +109,7 @@ void cluster_balance_policy::balance(bool checker,
         return;
     }
 
-    //优先迁移secondary  有方案则直接返回
+    //优先迁移secondary  有方案则直接返回（跑去执行方案了）
     //cluster_replica_balance连填充migration_result顺带发送迁移请求
     bool need_continue =
         cluster_replica_balance(_global_view, balance_type::COPY_SECONDARY, *_migration_result);
@@ -128,12 +130,12 @@ bool cluster_balance_policy::cluster_replica_balance(const meta_view *global_vie
         return false;
     }
     //apply move之后migration_list被填充
-    //如果migration_list有数值的，则说明没有需要迁移的需求了
+    //list里面是balance request，说明已经找到了平衡的方法，不需要再试其他copy类型了
     if (!list.empty()) {
         ddebug_f("migration count of {} = {}", enum_to_string(type), list.size());
         return false;
     }
-    //还需要迁移
+    //还需要采用其他方法迁移
     return true;
 }
 
@@ -151,6 +153,7 @@ bool cluster_balance_policy::do_cluster_replica_balance(const meta_view *global_
     move_info next_move;
     //get_next_move算出要把Nodes从哪移动到哪
     while (get_next_move(cluster_info, selected_pid, next_move)) {
+        //list里面存了生成的balance request
         if (!apply_move(next_move, selected_pid, list, cluster_info)) { 
             break;
         }
@@ -224,7 +227,7 @@ bool cluster_balance_policy::get_cluster_migration_info(
 bool cluster_balance_policy::get_app_migration_info(std::shared_ptr<app_state> app,
                                                     const node_mapper &nodes,
                                                     const balance_type type,
-                                                    app_migration_info &info)
+                                                    /*out*/app_migration_info &info)
 {
     info.app_id = app->app_id;
     info.app_name = app->app_name;
@@ -283,6 +286,7 @@ bool cluster_balance_policy::get_next_move(const cluster_migration_info &cluster
                                            /*out*/ move_info &next_move)
 {
     // key-app skew, value-app id
+    //翻转map  value(在这里是replica个数)最大的放在最后面
     std::multimap<uint32_t, int32_t> app_skew_multimap = utils::flip_map(cluster_info.apps_skew);
     //找到skew最严重的表
     auto max_app_skew = app_skew_multimap.rbegin()->first;
@@ -309,6 +313,7 @@ bool cluster_balance_policy::get_next_move(const cluster_migration_info &cluster
     get_min_max_set(cluster_info.replicas_count, cluster_min_count_nodes, cluster_max_count_nodes);
 
     bool found = false;
+    //这样取值，如果两个表的最小replica数量相同，就都可以取到
     auto app_range = app_skew_multimap.equal_range(max_app_skew);
     for (auto iter = app_range.first; iter != app_range.second; ++iter) {
         auto app_id = iter->second;
@@ -439,7 +444,7 @@ void cluster_balance_policy::get_max_load_disk_set(
                 std::pair<uint32_t, app_disk_info>(kv.second.size(), info));
         }
     }
-    //利用equal_range把最大负载的N个app_disk_info都导入出来
+    //利用equal_range把最大负载的N个app_disk_info都导出来
     auto range = app_disk_info_multimap.equal_range(app_disk_info_multimap.rbegin()->first);
     for (auto iter = range.first; iter != range.second; ++iter) {
         max_load_disk_set.insert(iter->second);

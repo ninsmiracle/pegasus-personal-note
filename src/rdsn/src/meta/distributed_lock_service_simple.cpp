@@ -126,11 +126,12 @@ distributed_lock_service_simple::lock(const std::string &lock_id,
     {
         zauto_lock l(_lock);
         auto it = _dlocks.find(lock_id);
+        //ZK上锁路径找不到
         if (it == _dlocks.end()) {
-            if (!opt.create_if_not_exist)
-            //ZK上锁路径找不到
+            if (!opt.create_if_not_exist)        
                 err = ERR_OBJECT_NOT_FOUND;
             else {
+                //创建这把锁
                 lock_info li;
                 li.owner = myself_id;
                 li.version = 1;
@@ -143,7 +144,9 @@ distributed_lock_service_simple::lock(const std::string &lock_id,
                 is_new = true;
             }
         } else {
+            //ZK上的锁非空
             if (it->second.owner != "") {
+                //ZK上的锁持有者和本地认的主一致
                 if (it->second.owner == myself_id) {
                     err = ERR_RECURSIVE_LOCK;
                     cowner = myself_id;
@@ -155,6 +158,7 @@ distributed_lock_service_simple::lock(const std::string &lock_id,
                     wi.grant_callback = grant_cb;
                     wi.lease_callback = lease_cb;
                     wi.owner = myself_id;
+                    //pending 代办的  锁持有发生了更迭
                     it->second.pending_list.push_back(wi);
                 }
             } else {

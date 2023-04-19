@@ -146,6 +146,7 @@ void load_from_private_log::find_log_file_to_start(std::map<int, log_file_ptr> l
             }
             break;
         }
+        //每个文件有个最大decree序号
         if (it->second->previous_log_max_decree(get_gpid()) < _start_decree &&
             _start_decree <= next_it->second->previous_log_max_decree(get_gpid())) {
             // `start_decree` is within the range

@@ -70,6 +70,7 @@ void app_balance_policy::balance(bool checker, const meta_view *global_view, mig
                     checker,
                     _balancer_in_turn,
                     _only_move_primary,
+                    //占位符，后面传入参数
                     std::bind(&app_balance_policy::copy_secondary,
                               this,
                               std::placeholders::_1,

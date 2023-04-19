@@ -423,6 +423,7 @@ public:
 typedef std::unordered_map<rpc_address, node_state> node_mapper;
 typedef std::map<dsn::gpid, std::shared_ptr<configuration_balancer_request>> migration_list;
 
+
 struct meta_view
 {
     //map<app_id, std::shared_ptr<app_state>>
@@ -437,7 +438,9 @@ inline node_state *get_node_state(node_mapper &nodes, rpc_address addr, bool cre
     if (nodes.find(addr) == nodes.end()) {
         if (!create_new)
             return nullptr;
+        //在现在的node_mapper中没有这个地址，创建出来
         ns = &nodes[addr];
+        //状态中有一项addr，填入
         ns->set_addr(addr);
     }
     ns = &nodes[addr];

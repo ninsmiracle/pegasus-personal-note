@@ -127,6 +127,7 @@ void pegasus_mutation_duplicator::send(uint64_t hash, callback cb)
                              _env.__conf.tracker);
 }
 
+//发送失败后的处理函数 回调
 void pegasus_mutation_duplicator::on_duplicate_reply(uint64_t hash,
                                                      mutation_duplicator::callback cb,
                                                      duplicate_rpc rpc,

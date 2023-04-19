@@ -152,6 +152,7 @@ namespace replication {
         g_end_offset = logs.rbegin()->second->end_offset();
     }
 
+    //检查连续性
     error_s error = log_utils::check_log_files_continuity(logs);
     if (!error.is_ok()) {
         derror_f("check_log_files_continuity failed: {}", error);

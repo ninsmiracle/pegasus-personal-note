@@ -117,7 +117,7 @@ public:
     void close();
 
     //
-    // replay
+    // replay  重放，把Log中的数据加载到内存mutation中，执行回调函数来处理这些mutation
     //
     static error_code replay(std::vector<std::string> &log_files,
                              replay_callback callback,

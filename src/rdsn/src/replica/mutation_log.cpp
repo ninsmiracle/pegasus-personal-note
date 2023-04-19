@@ -51,6 +51,7 @@ DSN_DEFINE_bool("replication",
                                             int64_t *pending_size)
 {
     auto d = mu->data.header.decree;
+    //判断一下传进来的callback是不是空值
     ::dsn::aio_task_ptr cb =
         callback ? file::create_aio_task(
                        callback_code, tracker, std::forward<aio_handler>(callback), hash)

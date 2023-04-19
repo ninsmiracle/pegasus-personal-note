@@ -29,8 +29,12 @@ replica_duplicator_manager::get_duplication_confirms_to_update() const
     zauto_lock l(_lock);
 
     std::vector<duplication_confirm_entry> updates;
+    //_duplications 是std::map<dupid_t, replica_duplicator_u_ptr>
     for (const auto &kv : _duplications) {
+        //Each replica_duplicator is responsible for one duplication. 一个duplication由一个单线程负责
         replica_duplicator *duplicator = kv.second.get();
+
+        //progress是一系列decree的结构
         duplication_progress p = duplicator->progress();
         if (p.last_decree != p.confirmed_decree ||
             (kv.second->status() == duplication_status::DS_PREPARE && p.checkpoint_has_prepared)) {
