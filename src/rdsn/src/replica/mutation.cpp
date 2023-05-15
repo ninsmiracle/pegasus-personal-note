@@ -352,6 +352,7 @@ mutation_ptr mutation_queue::add_work(task_code code, dsn::message_ex *request, 
     task_spec *spec = task_spec::get(code);
 
     // if not allow write batch, switch work queue
+    //_pending_mutation 是个mutation指针
     if (_pending_mutation && !spec->rpc_request_is_write_allow_batch) {
         _pending_mutation->add_ref(); // released when unlink
         _hdr.add(_pending_mutation);
